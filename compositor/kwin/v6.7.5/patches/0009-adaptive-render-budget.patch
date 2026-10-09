@@ -1,0 +1,433 @@
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Tue, 21 Jul 2026 11:10:00 -0500
+Subject: [PATCH] core: add refresh-relative adaptive timing budgets
+
+Expose unclamped render spans while retaining the stock backend prediction
+floor for fail-closed operation. Learn a bounded render budget independently
+for each presentation path from the second-largest duration in a fixed sample
+window. Live mode uses a refresh-derived first-frame bootstrap, adopts the first
+raw render span, gives one-off overruns a short emergency reserve, raises the
+persistent budget on repeated tails, and decays after clean windows.
+
+Replace the older fixed-time wake-margin floor, guard, decay, and hard ceiling
+with bounds derived from each output's refresh duration. Both live controllers
+operate in nanoseconds, isolate state by output and presentation path, and
+contain no fixed millisecond tuning constants.
+
+--- a/src/core/renderbackend.cpp
++++ b/src/core/renderbackend.cpp
+@@ -21,6 +21,7 @@
+     return RenderTimeSpan{
+         .start = std::min(start, other.start),
+         .end = std::max(end, other.end),
++        .predictionFloor = std::max(predictionFloor, other.predictionFloor),
+     };
+ }
+ 
+--- a/src/core/renderbackend.h
++++ b/src/core/renderbackend.h
+@@ -41,6 +41,9 @@
+ {
+     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::time_point{std::chrono::nanoseconds::zero()};
+     std::chrono::steady_clock::time_point end = std::chrono::steady_clock::time_point{std::chrono::nanoseconds::zero()};
++    // Stock prediction can retain a backend-specific safety floor while the
++    // gated controller learns from the unclamped start/end span.
++    std::chrono::nanoseconds predictionFloor = std::chrono::nanoseconds::zero();
+ 
+     RenderTimeSpan operator|(const RenderTimeSpan &other) const;
+ };
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -44,17 +44,36 @@
+     s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000) : 1000};
+ // 0 = fixed, 1 = shadow (learn but don't apply), 2 = adaptive.
+ static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2) : 0;
+-static constexpr std::chrono::nanoseconds s_adaptiveMarginFloor = 100us;
+-static constexpr std::chrono::nanoseconds s_adaptiveMarginGuard = 50us;
+-static constexpr std::chrono::nanoseconds s_adaptiveMarginHysteresis = 50us;
+-static constexpr std::chrono::nanoseconds s_adaptiveMarginDecayStep = 50us;
+-static constexpr std::chrono::nanoseconds s_adaptiveMarginHardCeiling = 2ms;
++// 0 = stock, 1 = shadow (learn but don't apply), 2 = adaptive.
++static const int s_renderBudgetMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(0), 0, 2) : 0;
+ static constexpr unsigned int s_adaptiveMarginWindowSize = 256;
+ static constexpr unsigned int s_adaptiveExternalStallFallbackCount = 2;
++static constexpr unsigned int s_adaptiveRenderBudgetWindowSize = 128;
++static constexpr unsigned int s_adaptiveRenderEmergencyFrames = s_adaptiveRenderBudgetWindowSize / 16;
+ 
+-static std::chrono::nanoseconds adaptiveMarginCeiling()
++static std::chrono::nanoseconds outputRefreshDuration(int refreshRate)
+ {
+-    return std::clamp<std::chrono::nanoseconds>(s_schedulerMargin, s_adaptiveMarginFloor, s_adaptiveMarginHardCeiling);
++    return std::chrono::nanoseconds(1'000'000'000'000ull / std::max(refreshRate, 1));
++}
++
++static std::chrono::nanoseconds adaptiveMarginFloor(std::chrono::nanoseconds refreshDuration)
++{
++    return std::max(refreshDuration / 256, 1ns);
++}
++
++static std::chrono::nanoseconds adaptiveMarginGuard(std::chrono::nanoseconds refreshDuration)
++{
++    return std::max(refreshDuration / 2048, 1ns);
++}
++
++static std::chrono::nanoseconds adaptiveMarginHysteresis(std::chrono::nanoseconds refreshDuration)
++{
++    return std::max(refreshDuration / 1024, 1ns);
++}
++
++static std::chrono::nanoseconds adaptiveMarginCeiling(std::chrono::nanoseconds refreshDuration)
++{
++    return std::max(refreshDuration / 4, 1ns);
+ }
+ 
+ RenderLoopPrivate::RenderLoopPrivate(RenderLoop *q, BackendOutput *output)
+@@ -62,6 +81,7 @@
+     , output(output)
+ {
+     resetAdaptiveCompositorSchedulingMargins();
++    resetAdaptiveRenderBudgets();
+     if (s_experimentKernelAllowed) {
+         compositeTimer = std::make_unique<PreciseTimer>();
+         QObject::connect(compositeTimer.get(), &PreciseTimer::timeout, q, [this] {
+@@ -70,6 +90,145 @@
+     }
+ }
+ 
++static std::chrono::nanoseconds renderBudgetFloor(std::chrono::nanoseconds refreshDuration)
++{
++    return std::max(refreshDuration / 64, 1ns);
++}
++
++static std::chrono::nanoseconds renderBudgetGuard(std::chrono::nanoseconds refreshDuration)
++{
++    return std::max(refreshDuration / 1024, 1ns);
++}
++
++static std::chrono::nanoseconds renderBudgetHysteresis(std::chrono::nanoseconds refreshDuration)
++{
++    return std::max(refreshDuration / 256, 1ns);
++}
++
++static std::chrono::nanoseconds renderBudgetCeiling(std::chrono::nanoseconds refreshDuration)
++{
++    return refreshDuration * 2;
++}
++
++static std::chrono::nanoseconds renderBudgetBootstrap(std::chrono::nanoseconds refreshDuration)
++{
++    return std::max(refreshDuration / 2, 1ns);
++}
++
++RenderLoopPrivate::AdaptiveRenderBudgetState &RenderLoopPrivate::adaptiveRenderBudgetState(AdaptiveMarginPath path)
++{
++    return adaptiveRenderBudgetStates[static_cast<std::size_t>(path)];
++}
++
++const RenderLoopPrivate::AdaptiveRenderBudgetState &RenderLoopPrivate::adaptiveRenderBudgetState(AdaptiveMarginPath path) const
++{
++    return adaptiveRenderBudgetStates[static_cast<std::size_t>(path)];
++}
++
++void RenderLoopPrivate::resetAdaptiveRenderBudgets()
++{
++    for (auto &state : adaptiveRenderBudgetStates) {
++        state = AdaptiveRenderBudgetState{};
++    }
++}
++
++std::chrono::nanoseconds RenderLoopPrivate::renderPrediction() const
++{
++    const auto stockPrediction = renderJournal.result();
++    const auto &state = adaptiveRenderBudgetState(adaptiveMarginPath(presentationMode));
++    if (s_renderBudgetMode != 2) {
++        return stockPrediction;
++    }
++    if (!state.warmedUp) {
++        return renderBudgetBootstrap(outputRefreshDuration(refreshRate));
++    }
++    return std::max(state.budget, state.emergencyBudget);
++}
++
++void RenderLoopPrivate::updateAdaptiveRenderBudget(AdaptiveMarginPath path, std::chrono::nanoseconds rawDuration, std::chrono::nanoseconds refreshDuration)
++{
++    if (s_renderBudgetMode == 0 || refreshDuration <= 0ns) {
++        return;
++    }
++
++    auto &state = adaptiveRenderBudgetState(path);
++
++    // A fully direct-scanout frame reports no render duration: queryRenderTime()
++    // returns an empty RenderTimeSpan. That is a real observation of near-zero
++    // compositor work, not a missing measurement, so it must still age the
++    // emergency budget and advance the decay window. Returning early here instead
++    // latched renderPrediction() for as long as scanout continued -- one spike
++    // then woke the compositor up to two refresh intervals early on every frame,
++    // the exact opposite of this feature's purpose.
++    if (state.emergencyFramesLeft != 0) {
++        state.emergencyFramesLeft--;
++        if (state.emergencyFramesLeft == 0) {
++            state.emergencyBudget = 0ns;
++        }
++    }
++
++    const auto floor = renderBudgetFloor(refreshDuration);
++    const auto guard = renderBudgetGuard(refreshDuration);
++    const auto ceiling = renderBudgetCeiling(refreshDuration);
++    const auto targetFor = [floor, guard, ceiling](std::chrono::nanoseconds duration) {
++        return std::clamp(duration + guard, floor, ceiling);
++    };
++    const auto closeWindow = [&] {
++        const auto target = targetFor(state.secondLargestRenderDuration);
++        if (target > state.budget) {
++            state.budget = target;
++        } else if (target + renderBudgetHysteresis(refreshDuration) <= state.budget) {
++            const auto difference = state.budget - target;
++            state.budget = std::max(target, state.budget - std::max(difference / 4, guard));
++        }
++
++        state.largestRenderDuration = 0ns;
++        state.secondLargestRenderDuration = 0ns;
++        state.windowSampleCount = 0;
++    };
++
++    if (rawDuration <= 0ns) {
++        state.windowSampleCount++;
++        if (state.windowSampleCount >= s_adaptiveRenderBudgetWindowSize) {
++            closeWindow();
++        }
++        return;
++    }
++
++    const auto boundedDuration = std::min(rawDuration, ceiling);
++
++    state.windowSampleCount++;
++    if (boundedDuration >= state.largestRenderDuration) {
++        state.secondLargestRenderDuration = state.largestRenderDuration;
++        state.largestRenderDuration = boundedDuration;
++    } else if (boundedDuration > state.secondLargestRenderDuration) {
++        state.secondLargestRenderDuration = boundedDuration;
++    }
++
++    const bool wasWarmedUp = state.warmedUp;
++    if (!wasWarmedUp) {
++        state.budget = targetFor(boundedDuration);
++        state.warmedUp = true;
++    } else {
++        const auto sampleTarget = targetFor(boundedDuration);
++        if (sampleTarget > state.budget) {
++            state.emergencyBudget = std::max(state.emergencyBudget, sampleTarget);
++            state.emergencyFramesLeft = s_adaptiveRenderEmergencyFrames;
++        }
++
++        const auto repeatedTailTarget = targetFor(state.secondLargestRenderDuration);
++        if (repeatedTailTarget > state.budget) {
++            state.budget = repeatedTailTarget;
++        }
++    }
++
++    if (state.windowSampleCount < s_adaptiveRenderBudgetWindowSize) {
++        return;
++    }
++
++    closeWindow();
++}
++
+ bool RenderLoopPrivate::compositeTimerActive() const
+ {
+     return s_experimentKernelAllowed ? compositeTimer->isActive() : legacyCompositeTimer.isActive();
+@@ -125,9 +284,10 @@
+ 
+ void RenderLoopPrivate::resetAdaptiveCompositorSchedulingMargins()
+ {
++    const auto ceiling = adaptiveMarginCeiling(outputRefreshDuration(refreshRate));
+     for (auto &state : adaptiveMarginStates) {
+         state = AdaptiveMarginState{};
+-        state.margin = adaptiveMarginCeiling();
++        state.margin = ceiling;
+     }
+     wakeSampleEligible = false;
+     wakeSampleValid = false;
+@@ -147,7 +307,11 @@
+ 
+     auto &state = adaptiveMarginState(scheduledAdaptiveMarginPath);
+     const auto wakeLateness = actualWakeTimestamp - armedWakeTimestamp;
+-    const auto ceiling = adaptiveMarginCeiling();
++    const auto refreshDuration = outputRefreshDuration(refreshRate);
++    const auto floor = adaptiveMarginFloor(refreshDuration);
++    const auto guard = adaptiveMarginGuard(refreshDuration);
++    const auto hysteresis = adaptiveMarginHysteresis(refreshDuration);
++    const auto ceiling = adaptiveMarginCeiling(refreshDuration);
+     state.windowSampleCount++;
+     wakeSampleTrained = true;
+ 
+@@ -169,7 +333,7 @@
+     // The second observation is enough to prove this is no longer an isolated
+     // spike. Pay that repeated tail immediately instead of waiting for the
+     // remainder of the window.
+-    const auto repeatedTailTarget = std::clamp(state.secondLargestWakeLateness + s_adaptiveMarginGuard, s_adaptiveMarginFloor, ceiling);
++    const auto repeatedTailTarget = std::clamp(state.secondLargestWakeLateness + guard, floor, ceiling);
+     if (repeatedTailTarget > state.margin) {
+         state.margin = repeatedTailTarget;
+     }
+@@ -180,12 +344,13 @@
+ 
+     const auto target = state.externalStallCount >= s_adaptiveExternalStallFallbackCount
+         ? ceiling
+-        : std::clamp(state.secondLargestWakeLateness + s_adaptiveMarginGuard, s_adaptiveMarginFloor, ceiling);
++        : std::clamp(state.secondLargestWakeLateness + guard, floor, ceiling);
+ 
+     if (target > state.margin) {
+         state.margin = target;
+-    } else if (target + s_adaptiveMarginHysteresis <= state.margin) {
+-        state.margin = std::max(target, state.margin - s_adaptiveMarginDecayStep);
++    } else if (target + hysteresis <= state.margin) {
++        const auto difference = state.margin - target;
++        state.margin = std::max(target, state.margin - std::max(difference / 4, guard));
+     }
+ 
+     state.warmedUp = true;
+@@ -218,7 +383,7 @@
+     scheduledAdaptiveMarginPath = adaptiveMarginPath(presentationMode);
+     wakeSampleEligible = true;
+     appliedSchedulerMargin = compositorSchedulingMargin();
+-    std::chrono::nanoseconds expectedCompositingTime = std::min(renderJournal.result() + safetyMargin + appliedSchedulerMargin, 2 * vblankInterval);
++    std::chrono::nanoseconds expectedCompositingTime = std::min(renderPrediction() + safetyMargin + appliedSchedulerMargin, 2 * vblankInterval);
+ 
+     if (presentationMode == PresentationMode::VSync) {
+         // normal presentation: pageflips only happen at vblank
+@@ -301,15 +466,24 @@
+ 
+ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp, std::optional<RenderTimeSpan> renderTime, PresentationMode mode, OutputFrame *frame)
+ {
++    const auto completedPath = adaptiveMarginPath(mode);
++    const auto rawRenderDuration = renderTime ? std::max(renderTime->end - renderTime->start, 0ns) : 0ns;
++    const auto stockRenderDuration = renderTime ? std::max(rawRenderDuration, renderTime->predictionFloor) : 0ns;
++    updateAdaptiveRenderBudget(completedPath, rawRenderDuration, frame->refreshDuration());
++
+     if (output && s_printDebugInfo && !m_debugOutput) {
+         m_debugOutput = std::fstream(qPrintable("kwin perf statistics " + output->name() + ".csv"), std::ios::out);
+-        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid,experiment kernel allowed,adaptive margin path,adaptive window samples,adaptive external stalls,adaptive second peak,adaptive state warmed,wake sample sequence,wake sample trained,telemetry sample divisor\n";
++        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid,experiment kernel allowed,adaptive margin path,adaptive window samples,adaptive external stalls,adaptive second peak,adaptive state warmed,wake sample sequence,wake sample trained,telemetry sample divisor,raw render duration,stock render duration,stock render prediction,adaptive render budget,emergency render budget,render budget mode,render budget path,render budget window samples,render budget second peak,render budget warmed\n";
+     }
+     if (m_debugOutput) {
+         const auto &adaptiveState = adaptiveMarginState(scheduledAdaptiveMarginPath);
++        const auto &renderBudgetState = adaptiveRenderBudgetState(completedPath);
+         const bool stateChanged = scheduledAdaptiveMarginPath != lastLoggedAdaptiveMarginPath
+             || adaptiveState.margin != lastLoggedAdaptiveMargin
+-            || adaptiveState.externalStallCount != lastLoggedAdaptiveExternalStallCount;
++            || adaptiveState.externalStallCount != lastLoggedAdaptiveExternalStallCount
++            || completedPath != lastLoggedRenderBudgetPath
++            || renderBudgetState.budget != lastLoggedRenderBudget
++            || renderBudgetState.emergencyBudget != lastLoggedEmergencyRenderBudget;
+         const bool periodicSample = wakeSampleSequence == 1 || wakeSampleSequence % s_compositorTelemetrySampleDivisor == 0;
+         if (periodicSample || stateChanged) {
+             auto times = renderTime.value_or(RenderTimeSpan{});
+@@ -322,10 +496,15 @@
+                            << "," << desiredWakeTimestamp.count() << "," << armedWakeTimestamp.count() << "," << actualWakeTimestamp.count() << "," << wakeLateness.count() << "," << scheduleDeficit.count() << "," << appliedSchedulerMargin.count()
+                            << "," << adaptiveState.margin.count() << "," << s_schedulerMarginMode << "," << (wakeSampleValid ? 1 : 0) << "," << (s_experimentKernelAllowed ? 1 : 0)
+                            << "," << adaptiveMarginPathNumber(scheduledAdaptiveMarginPath) << "," << adaptiveState.windowSampleCount << "," << adaptiveState.externalStallCount << "," << adaptiveState.secondLargestWakeLateness.count()
+-                           << "," << (adaptiveState.warmedUp ? 1 : 0) << "," << wakeSampleSequence << "," << (wakeSampleTrained ? 1 : 0) << "," << s_compositorTelemetrySampleDivisor << "\n";
++                           << "," << (adaptiveState.warmedUp ? 1 : 0) << "," << wakeSampleSequence << "," << (wakeSampleTrained ? 1 : 0) << "," << s_compositorTelemetrySampleDivisor
++                           << "," << rawRenderDuration.count() << "," << stockRenderDuration.count() << "," << renderJournal.result().count() << "," << renderBudgetState.budget.count() << "," << renderBudgetState.emergencyBudget.count()
++                           << "," << s_renderBudgetMode << "," << adaptiveMarginPathNumber(completedPath) << "," << renderBudgetState.windowSampleCount << "," << renderBudgetState.secondLargestRenderDuration.count() << "," << (renderBudgetState.warmedUp ? 1 : 0) << "\n";
+             lastLoggedAdaptiveMargin = adaptiveState.margin;
+             lastLoggedAdaptiveMarginPath = scheduledAdaptiveMarginPath;
+             lastLoggedAdaptiveExternalStallCount = adaptiveState.externalStallCount;
++            lastLoggedRenderBudgetPath = completedPath;
++            lastLoggedRenderBudget = renderBudgetState.budget;
++            lastLoggedEmergencyRenderBudget = renderBudgetState.emergencyBudget;
+         }
+     }
+ 
+@@ -335,7 +514,7 @@
+     notifyVblank(timestamp);
+ 
+     if (renderTime) {
+-        renderJournal.add(renderTime->end - renderTime->start, timestamp);
++        renderJournal.add(stockRenderDuration, timestamp);
+     }
+     if (compositeTimerActive()) {
+         // reschedule to match the new timestamp and render time
+@@ -433,6 +612,7 @@
+     }
+     d->refreshRate = refreshRate;
+     d->resetAdaptiveCompositorSchedulingMargins();
++    d->resetAdaptiveRenderBudgets();
+     Q_EMIT refreshRateChanged();
+ 
+     if (d->compositeTimerActive()) {
+@@ -510,7 +690,7 @@
+ 
+ std::chrono::nanoseconds RenderLoop::predictedRenderTime() const
+ {
+-    return d->renderJournal.result();
++    return d->renderPrediction();
+ }
+ 
+ } // namespace KWin
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -46,6 +46,16 @@
+         bool warmedUp = false;
+     };
+ 
++    struct AdaptiveRenderBudgetState {
++        std::chrono::nanoseconds budget = std::chrono::nanoseconds::zero();
++        std::chrono::nanoseconds emergencyBudget = std::chrono::nanoseconds::zero();
++        std::chrono::nanoseconds largestRenderDuration = std::chrono::nanoseconds::zero();
++        std::chrono::nanoseconds secondLargestRenderDuration = std::chrono::nanoseconds::zero();
++        unsigned int windowSampleCount = 0;
++        unsigned int emergencyFramesLeft = 0;
++        bool warmedUp = false;
++    };
++
+     static RenderLoopPrivate *get(RenderLoop *loop);
+     explicit RenderLoopPrivate(RenderLoop *q, BackendOutput *output);
+ 
+@@ -60,6 +70,11 @@
+     const AdaptiveMarginState &adaptiveMarginState(AdaptiveMarginPath path) const;
+     void resetAdaptiveCompositorSchedulingMargins();
+     void updateAdaptiveCompositorSchedulingMargin();
++    std::chrono::nanoseconds renderPrediction() const;
++    AdaptiveRenderBudgetState &adaptiveRenderBudgetState(AdaptiveMarginPath path);
++    const AdaptiveRenderBudgetState &adaptiveRenderBudgetState(AdaptiveMarginPath path) const;
++    void resetAdaptiveRenderBudgets();
++    void updateAdaptiveRenderBudget(AdaptiveMarginPath path, std::chrono::nanoseconds rawDuration, std::chrono::nanoseconds refreshDuration);
+ 
+     void delayScheduleRepaint();
+     void scheduleNextRepaint();
+@@ -79,10 +94,14 @@
+     std::chrono::nanoseconds actualWakeTimestamp = std::chrono::nanoseconds::zero();
+     std::chrono::nanoseconds appliedSchedulerMargin = std::chrono::nanoseconds::zero();
+     std::array<AdaptiveMarginState, static_cast<std::size_t>(AdaptiveMarginPath::Count)> adaptiveMarginStates;
++    std::array<AdaptiveRenderBudgetState, static_cast<std::size_t>(AdaptiveMarginPath::Count)> adaptiveRenderBudgetStates;
+     AdaptiveMarginPath scheduledAdaptiveMarginPath = AdaptiveMarginPath::VSync;
+     AdaptiveMarginPath lastLoggedAdaptiveMarginPath = AdaptiveMarginPath::Count;
+     std::chrono::nanoseconds lastLoggedAdaptiveMargin = std::chrono::nanoseconds::min();
+     unsigned int lastLoggedAdaptiveExternalStallCount = std::numeric_limits<unsigned int>::max();
++    AdaptiveMarginPath lastLoggedRenderBudgetPath = AdaptiveMarginPath::Count;
++    std::chrono::nanoseconds lastLoggedRenderBudget = std::chrono::nanoseconds::min();
++    std::chrono::nanoseconds lastLoggedEmergencyRenderBudget = std::chrono::nanoseconds::min();
+     uint64_t wakeSampleSequence = 0;
+     bool wakeSampleEligible = false;
+     bool wakeSampleValid = false;
+--- a/src/opengl/glrendertimequery.cpp
++++ b/src/opengl/glrendertimequery.cpp
+@@ -80,13 +80,11 @@
+         }
+     }
+ 
+-    // timings are pretty unpredictable in the sub-millisecond range; this minimum
+-    // ensures that when CPU or GPU power states change, we don't drop any frames
+-    const std::chrono::nanoseconds minimumTime = std::chrono::milliseconds(2);
+-    const auto end = std::max({m_cpuProbe.start + (m_gpuProbe.end - m_gpuProbe.start), m_cpuProbe.end, m_cpuProbe.start + minimumTime});
++    const auto rawEnd = std::max(m_cpuProbe.start + (m_gpuProbe.end - m_gpuProbe.start), m_cpuProbe.end);
+     return RenderTimeSpan{
+         .start = m_cpuProbe.start,
+-        .end = end,
++        .end = rawEnd,
++        .predictionFloor = std::chrono::milliseconds(2),
+     };
+ }
+ 

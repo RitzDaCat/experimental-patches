@@ -1,0 +1,84 @@
+From cd46f9c9c34910a95b5ba8c83d8daffc248f4bb4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jakub=20Oko=C5=84ski?= <jakub@okonski.org>
+Date: Tue, 9 Jun 2026 19:43:45 +0200
+Subject: [PATCH] core/renderloop: use timerfd for compositor wakeups
+
+Qt::PreciseTimer rounds up to a millisecond and so does the renderloop
+to account for it. Switch to a PreciseTimer which does not round up.
+---
+ src/core/renderloop.cpp | 13 +++++--------
+ src/core/renderloop_p.h |  3 ++-
+ 2 files changed, 7 insertions(+), 9 deletions(-)
+
+diff --git a/src/core/renderloop.cpp b/src/core/renderloop.cpp
+index 2efaa951f45..3257f2b931c 100644
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -9,12 +9,9 @@
+ #include "options.h"
+ #include "renderloop_p.h"
+ #include "scene/surfaceitem.h"
+-#include "utils/common.h"
+ #include "window.h"
+ #include "workspace.h"
+ 
+-#include <filesystem>
+-
+ using namespace std::chrono_literals;
+ 
+ namespace KWin
+@@ -31,6 +28,9 @@ RenderLoopPrivate::RenderLoopPrivate(RenderLoop *q, BackendOutput *output)
+     : q(q)
+     , output(output)
+ {
++    QObject::connect(&compositeTimer, &PreciseTimer::timeout, q, [this] {
++        dispatch();
++    });
+ }
+ 
+ void RenderLoopPrivate::scheduleNextRepaint()
+@@ -109,7 +109,7 @@ void RenderLoopPrivate::scheduleRepaint(std::chrono::nanoseconds lastTargetTimes
+     }
+ 
+     const std::chrono::nanoseconds nextRenderTimestamp = nextPresentationTimestamp - expectedCompositingTime;
+-    compositeTimer.start(std::max(0ms, std::chrono::duration_cast<std::chrono::milliseconds>(nextRenderTimestamp - currentTime)), Qt::PreciseTimer, q);
++    compositeTimer.start(nextRenderTimestamp);
+ }
+ 
+ void RenderLoopPrivate::delayScheduleRepaint()
+@@ -175,10 +175,7 @@ void RenderLoopPrivate::notifyVblank(std::chrono::nanoseconds timestamp)
+ 
+ void RenderLoop::timerEvent(QTimerEvent *event)
+ {
+-    if (event->timerId() == d->compositeTimer.timerId()) {
+-        d->compositeTimer.stop();
+-        d->dispatch();
+-    } else if (event->timerId() == d->delayedVrrTimer.timerId()) {
++    if (event->timerId() == d->delayedVrrTimer.timerId()) {
+         d->delayedVrrTimer.stop();
+         scheduleRepaint(nullptr, nullptr);
+     } else {
+diff --git a/src/core/renderloop_p.h b/src/core/renderloop_p.h
+index 4402bb4bd55..f5dbf3fee1f 100644
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -9,6 +9,7 @@
+ #include "renderbackend.h"
+ #include "renderjournal.h"
+ #include "renderloop.h"
++#include "utils/precisetimer.h"
+ 
+ #include <QBasicTimer>
+ 
+@@ -44,7 +45,7 @@ public:
+     std::chrono::nanoseconds nextPresentationTimestamp = std::chrono::nanoseconds::zero();
+     bool wasTripleBuffering = false;
+     int doubleBufferingCounter = 0;
+-    QBasicTimer compositeTimer;
++    PreciseTimer compositeTimer;
+     RenderJournal renderJournal;
+     int refreshRate = 60000;
+     int pendingFrameCount = 0;
+-- 
+GitLab
+

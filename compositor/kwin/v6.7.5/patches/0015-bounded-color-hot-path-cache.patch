@@ -1,0 +1,592 @@
+From 9e04f3e64982071c24a214cc7c7d39b860cca085 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Tue, 21 Jul 2026 23:20:00 -0500
+Subject: [PATCH] compositor: bound and reuse stable color work
+
+Stable fullscreen and composited frames repeatedly rebuild identical color
+pipelines, allocate equivalent HDR metadata descriptions, copy the plane
+pipeline list and upload unchanged OpenGL color uniforms.
+
+Keep immutable last-value state per output and shader, use a fixed four-entry
+renderer identity cache, and return the DRM pipeline list by const reference.
+For the composited path, hoist destination reciprocals and the invariant tone
+mapping coefficient to CPU setup, and specialize shaders for surfaces proven
+opaque so premultiplication divisions are compiled out.
+
+All caches are bounded and owner-local. They add no locks, maps, configuration
+or telemetry, and their keys include every input that affects the result.
+---
+--- a/autotests/test_colorspaces.cpp
++++ b/autotests/test_colorspaces.cpp
+@@ -352,9 +352,8 @@
+         }
+     }
+ 
+-    QImage openGlResult;
+-    {
+-        ShaderBinder binder(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
++    const auto renderWithTraits = [&](ShaderTraits traits) {
++        ShaderBinder binder(traits);
+         QMatrix4x4 proj;
+         proj.ortho(QRectF(0, 0, input.width(), input.height()));
+         binder.shader()->setUniform(GLShader::Mat4Uniform::ModelViewProjectionMatrix, proj);
+@@ -367,9 +366,12 @@
+         srcColor->render(input.size());
+ 
+         context->popFramebuffer();
+-        openGlResult = target->toImage();
+-        openGlResult.mirror();
+-    }
++        QImage result = target->toImage();
++        result.mirror();
++        return result;
++    };
++    const QImage openGlResult = renderWithTraits(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace);
++    const QImage opaqueOpenGlResult = renderWithTraits(ShaderTrait::MapTexture | ShaderTrait::TransformColorspace | ShaderTrait::OpaqueColorspace);
+     QImage pipelineResult(input.width(), input.height(), QImage::Format_RGBA8888_Premultiplied);
+     {
+         const auto pipeline = ColorPipeline::create(src, dst, intent);
+@@ -387,10 +389,15 @@
+         for (int y = 0; y < input.height(); y++) {
+             const auto glPixel = openGlResult.pixel(x, y);
+             const QVector3D glColors = QVector3D(qRed(glPixel), qGreen(glPixel), qBlue(glPixel));
++            const auto opaqueGlPixel = opaqueOpenGlResult.pixel(x, y);
++            const QVector3D opaqueGlColors = QVector3D(qRed(opaqueGlPixel), qGreen(opaqueGlPixel), qBlue(opaqueGlPixel));
+             const auto pipePixel = pipelineResult.pixel(x, y);
+             const QVector3D pipeColors = QVector3D(qRed(pipePixel), qGreen(pipePixel), qBlue(pipePixel));
+             const QVector3D difference = (glColors - pipeColors);
++            const QVector3D opaqueDifference = (opaqueGlColors - pipeColors);
+             QCOMPARE_LE(difference.length(), maxError);
++            QCOMPARE_LE(opaqueDifference.length(), maxError);
++            QCOMPARE(opaqueGlPixel, glPixel);
+         }
+     }
+ }
+--- a/src/backends/drm/drm_egl_layer.cpp
++++ b/src/backends/drm/drm_egl_layer.cpp
+@@ -111,7 +111,7 @@
+         if (!m_plane || drmOutput()->colorPowerTradeoff() == BackendOutput::ColorPowerTradeoff::PreferAccuracy) {
+             return DirectScanoutCheckResult::ColorPipelineUnsupported;
+         }
+-        const auto pipelines = m_plane->colorPipelines();
++        const auto &pipelines = m_plane->colorPipelines();
+         const bool match = std::ranges::any_of(pipelines, [this](DrmColorOp *colorop) {
+             return colorop->colorOp()->matchPipeline(gpu(), m_colorPipeline);
+         });
+--- a/src/backends/drm/drm_pipeline.cpp
++++ b/src/backends/drm/drm_pipeline.cpp
+@@ -272,7 +272,7 @@
+         commit->addProperty(plane->fbDamage, 0);
+     }
+ 
+-    const auto colorPipelines = plane->colorPipelines();
++    const auto &colorPipelines = plane->colorPipelines();
+     if (layer->colorPipeline().isIdentity()) {
+         if (plane->colorPipeline.isValid()) {
+             commit->addProperty(plane->colorPipeline, 0);
+--- a/src/backends/drm/drm_plane.cpp
++++ b/src/backends/drm/drm_plane.cpp
+@@ -304,7 +304,7 @@
+     return m_sizeHints;
+ }
+ 
+-QList<DrmColorOp *> DrmPlane::colorPipelines() const
++const QList<DrmColorOp *> &DrmPlane::colorPipelines() const
+ {
+     return m_colorPipelines;
+ }
+--- a/src/backends/drm/drm_plane.h
++++ b/src/backends/drm/drm_plane.h
+@@ -53,7 +53,7 @@
+     void set(DrmAtomicCommit *commit, const Rect &src, const Rect &dst);
+ 
+     QList<QSize> recommendedSizes() const;
+-    QList<DrmColorOp *> colorPipelines() const;
++    const QList<DrmColorOp *> &colorPipelines() const;
+ 
+     enum class TypeIndex : uint64_t {
+         Overlay = 0,
+--- a/src/compositor.cpp
++++ b/src/compositor.cpp
+@@ -450,7 +450,7 @@
+     layer->setSourceRect(candidate->bufferSourceBox());
+     layer->setBufferTransform(candidate->bufferTransform());
+     layer->setOffloadTransform(candidate->bufferTransform().combine(backendOutput->transform().inverted()));
+-    layer->setColor(candidate->colorDescription(), candidate->renderingIntent(), ColorPipeline::create(candidate->colorDescription(), backendOutput->layerBlendingColor(), candidate->renderingIntent()));
++    layer->setDirectScanoutColor(candidate->colorDescription(), backendOutput->layerBlendingColor(), candidate->renderingIntent());
+     const auto scanoutCheck = layer->earlyScanoutCheckResult();
+     if (scanoutCheck != DirectScanoutCheckResult::Passed) {
+         if (s_latencyCaptureEnabled) {
+@@ -509,7 +509,7 @@
+     layer->setEnabled(true);
+     layer->setOffloadTransform(OutputTransform::Normal);
+     layer->setBufferTransform(backendOutput->transform());
+-    layer->setColor(backendOutput->layerBlendingColor()->withHdrMetadata(reference, usedMaxLuminance), RenderingIntent::AbsoluteColorimetricNoAdaptation, ColorPipeline{});
++    layer->setColorWithHdrMetadata(backendOutput->layerBlendingColor(), reference, usedMaxLuminance, RenderingIntent::AbsoluteColorimetricNoAdaptation, ColorPipeline{});
+     layer->setRequiredAlphaBits(requiredAlphaBits);
+     return layer->preparePresentationTest();
+ }
+--- a/src/core/outputlayer.cpp
++++ b/src/core/outputlayer.cpp
+@@ -211,9 +211,54 @@
+ 
+ void OutputLayer::setColor(const std::shared_ptr<ColorDescription> &color, RenderingIntent intent, const ColorPipeline &pipeline)
+ {
+-    m_color = color;
++    if (m_color.get() != color.get()) {
++        m_color = color;
++    }
+     m_renderingIntent = intent;
+     m_colorPipeline = pipeline;
++    m_directScanoutColorCache.active = false;
++}
++
++void OutputLayer::setDirectScanoutColor(const std::shared_ptr<ColorDescription> &source, const std::shared_ptr<ColorDescription> &destination, RenderingIntent intent, ColorPipeline::InputType inputType)
++{
++    const bool cacheHit = m_directScanoutColorCache.valid
++        && m_directScanoutColorCache.source.get() == source.get()
++        && m_directScanoutColorCache.destination.get() == destination.get()
++        && m_directScanoutColorCache.intent == intent
++        && m_directScanoutColorCache.inputType == inputType;
++    if (!cacheHit) {
++        m_directScanoutColorCache.source = source;
++        m_directScanoutColorCache.destination = destination;
++        m_directScanoutColorCache.intent = intent;
++        m_directScanoutColorCache.inputType = inputType;
++        m_directScanoutColorCache.pipeline = ColorPipeline::create(source, destination, intent, inputType);
++        m_directScanoutColorCache.valid = true;
++        m_directScanoutColorCache.active = false;
++    }
++    if (!m_directScanoutColorCache.active) {
++        m_colorPipeline = m_directScanoutColorCache.pipeline;
++        m_directScanoutColorCache.active = true;
++    }
++    if (m_color.get() != source.get()) {
++        m_color = source;
++    }
++    m_renderingIntent = intent;
++}
++
++void OutputLayer::setColorWithHdrMetadata(const std::shared_ptr<ColorDescription> &base, double maxAverageLuminance, double maxLuminance, RenderingIntent intent, const ColorPipeline &pipeline)
++{
++    const bool cacheHit = m_hdrMetadataColorCache.valid
++        && m_hdrMetadataColorCache.base.get() == base.get()
++        && m_hdrMetadataColorCache.maxAverageLuminance == maxAverageLuminance
++        && m_hdrMetadataColorCache.maxLuminance == maxLuminance;
++    if (!cacheHit) {
++        m_hdrMetadataColorCache.base = base;
++        m_hdrMetadataColorCache.maxAverageLuminance = maxAverageLuminance;
++        m_hdrMetadataColorCache.maxLuminance = maxLuminance;
++        m_hdrMetadataColorCache.result = base->withHdrMetadata(maxAverageLuminance, maxLuminance);
++        m_hdrMetadataColorCache.valid = true;
++    }
++    setColor(m_hdrMetadataColorCache.result, intent, pipeline);
+ }
+ 
+ bool OutputLayer::preparePresentationTest()
+--- a/src/core/outputlayer.h
++++ b/src/core/outputlayer.h
+@@ -161,6 +161,8 @@
+     const std::shared_ptr<ColorDescription> &colorDescription() const;
+     RenderingIntent renderIntent() const;
+     void setColor(const std::shared_ptr<ColorDescription> &color, RenderingIntent intent, const ColorPipeline &pipeline);
++    void setDirectScanoutColor(const std::shared_ptr<ColorDescription> &source, const std::shared_ptr<ColorDescription> &destination, RenderingIntent intent, ColorPipeline::InputType inputType = ColorPipeline::InputType::FixedPoint);
++    void setColorWithHdrMetadata(const std::shared_ptr<ColorDescription> &base, double maxAverageLuminance, double maxLuminance, RenderingIntent intent, const ColorPipeline &pipeline);
+ 
+     /**
+      * Set the required bits for compositing on this plane. Direct scanout is not affected.
+@@ -195,6 +197,24 @@
+     ColorPipeline m_colorPipeline;
+     std::shared_ptr<ColorDescription> m_color = ColorDescription::sRGB;
+     RenderingIntent m_renderingIntent = RenderingIntent::Perceptual;
++    struct
++    {
++        std::shared_ptr<ColorDescription> source;
++        std::shared_ptr<ColorDescription> destination;
++        ColorPipeline pipeline;
++        RenderingIntent intent = RenderingIntent::Perceptual;
++        ColorPipeline::InputType inputType = ColorPipeline::InputType::FixedPoint;
++        bool valid = false;
++        bool active = false;
++    } m_directScanoutColorCache;
++    struct
++    {
++        std::shared_ptr<ColorDescription> base;
++        std::shared_ptr<ColorDescription> result;
++        double maxAverageLuminance = 0;
++        double maxLuminance = 0;
++        bool valid = false;
++    } m_hdrMetadataColorCache;
+     QPointer<SurfaceItem> m_scanoutCandidate;
+     QPointer<BackendOutput> m_output;
+     uint32_t m_requiredAlphaBits = 0;
+--- a/src/opengl/colormanagement.glsl
++++ b/src/opengl/colormanagement.glsl
+@@ -16,7 +16,7 @@
+ uniform int destinationNamedTransferFunction;
+ /**
+  * x: min luminance
+- * y: max luminance - min luminance
++ * y: reciprocal of max luminance - min luminance
+  */
+ uniform vec2 destinationTransferFunctionParams;
+ 
+@@ -24,7 +24,9 @@
+ uniform float sourceReferenceLuminance;
+ uniform float maxTonemappingLuminance;
+ uniform float destinationReferenceLuminance;
++uniform float inverseDestinationReferenceLuminance;
+ uniform float maxDestinationLuminance;
++uniform float tonemappingV;
+ 
+ uniform mat4 destinationToLMS;
+ uniform mat4 lmsToDestination;
+@@ -120,11 +122,8 @@
+     float luminance = singlePqToLinear(ICtCp.r) * 10000.0;
+ 
+     // apply tone mapping operation (modified Reinhart)
+-    float relativeLuminance = max(luminance / destinationReferenceLuminance, 0.0);
+-    float inputRange = maxTonemappingLuminance / destinationReferenceLuminance;
+-    float outputRange = maxDestinationLuminance / destinationReferenceLuminance;
+-    float v = (outputRange * (1.0 + inputRange) - inputRange) / pow(inputRange, 2.0);
+-    relativeLuminance = relativeLuminance * (1.0 + relativeLuminance * v) / (1.0 + relativeLuminance);
++    float relativeLuminance = max(luminance * inverseDestinationReferenceLuminance, 0.0);
++    relativeLuminance = relativeLuminance * (1.0 + relativeLuminance * tonemappingV) / (1.0 + relativeLuminance);
+     luminance = relativeLuminance * destinationReferenceLuminance;
+ 
+     // convert back to rgb
+@@ -136,24 +135,40 @@
+ 
+ vec4 encodingToNits(vec4 color, int sourceTransferFunction, float luminanceOffset, float luminanceScale) {
+     if (sourceTransferFunction == sRGB_EOTF) {
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb /= max(color.a, 0.001);
++#endif
+         color.rgb = srgbToLinear(color.rgb) * luminanceScale + vec3(luminanceOffset);
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb *= color.a;
++#endif
+     } else if (sourceTransferFunction == linear_EOTF) {
+         color.rgb = color.rgb * luminanceScale + vec3(luminanceOffset);
+     } else if (sourceTransferFunction == PQ_EOTF) {
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb /= max(color.a, 0.001);
++#endif
+         color.rgb = pqToLinear(color.rgb) * luminanceScale + vec3(luminanceOffset);
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb *= color.a;
++#endif
+     } else if (sourceTransferFunction == gamma22_EOTF) {
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb /= max(color.a, 0.001);
++#endif
+         color.rgb = pow(max(color.rgb, vec3(0.0)), vec3(2.2)) * luminanceScale + vec3(luminanceOffset);
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb *= color.a;
++#endif
+     } else if (sourceTransferFunction == BT1886_EOTF) {
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb /= max(color.a, 0.001);
++#endif
+         // for bt1886, luminanceScale = a, luminanceOffset = b
+         color.rgb = luminanceScale * pow(max(color.rgb + vec3(luminanceOffset), vec3(0.0)), vec3(2.4));
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb *= color.a;
++#endif
+     }
+     return color;
+ }
+@@ -164,26 +179,42 @@
+     return vec4(doTonemapping(color.rgb), color.a);
+ }
+ 
+-vec4 nitsToEncoding(vec4 color, int destinationTransferFunction, float luminanceOffset, float luminanceScale) {
++vec4 nitsToEncoding(vec4 color, int destinationTransferFunction, float luminanceOffset, float inverseLuminanceScale) {
+     if (destinationTransferFunction == sRGB_EOTF) {
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb /= max(color.a, 0.001);
+-        color.rgb = linearToSrgb((color.rgb - vec3(luminanceOffset)) / luminanceScale);
++#endif
++        color.rgb = linearToSrgb((color.rgb - vec3(luminanceOffset)) * inverseLuminanceScale);
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb *= color.a;
++#endif
+     } else if (destinationTransferFunction == linear_EOTF) {
+-        color.rgb = (color.rgb - vec3(luminanceOffset)) / luminanceScale;
++        color.rgb = (color.rgb - vec3(luminanceOffset)) * inverseLuminanceScale;
+     } else if (destinationTransferFunction == PQ_EOTF) {
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb /= max(color.a, 0.001);
+-        color.rgb = linearToPq((color.rgb - vec3(luminanceOffset)) / luminanceScale);
++#endif
++        color.rgb = linearToPq((color.rgb - vec3(luminanceOffset)) * inverseLuminanceScale);
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb *= color.a;
++#endif
+     } else if (destinationTransferFunction == gamma22_EOTF) {
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb /= max(color.a, 0.001);
+-        color.rgb = pow(max((color.rgb - vec3(luminanceOffset)) / luminanceScale, vec3(0.0)), vec3(1.0 / 2.2));
++#endif
++        color.rgb = pow(max((color.rgb - vec3(luminanceOffset)) * inverseLuminanceScale, vec3(0.0)), vec3(1.0 / 2.2));
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb *= color.a;
++#endif
+     } else if (destinationTransferFunction == BT1886_EOTF) {
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb /= max(color.a, 0.001);
+-        // for bt1886, luminanceScale = a, luminanceOffset = b
+-        color.rgb = pow(color.rgb / luminanceScale, vec3(1.0 / 2.4)) - vec3(luminanceOffset);
++#endif
++        // for bt1886, inverseLuminanceScale = 1 / a, luminanceOffset = b
++        color.rgb = pow(color.rgb * inverseLuminanceScale, vec3(1.0 / 2.4)) - vec3(luminanceOffset);
++#if !TRAIT_OPAQUE_COLORSPACE
+         color.rgb *= color.a;
++#endif
+     }
+     return color;
+ }
+--- a/src/opengl/glshader.cpp
++++ b/src/opengl/glshader.cpp
+@@ -21,6 +21,7 @@
+ GLShader::GLShader()
+     : m_context(EglContext::currentContext())
+     , m_locationsResolved(false)
++    , m_colorUniformsValid(false)
+ {
+     m_program = glCreateProgram();
+ }
+@@ -65,6 +66,10 @@
+         qCDebug(KWIN_OPENGL) << "Shader link log:" << log;
+     }
+ 
++    m_colorUniformSource.reset();
++    m_colorUniformDestination.reset();
++    m_colorUniformsValid = false;
++
+     return true;
+ }
+ 
+@@ -271,7 +276,9 @@
+     m_floatLocations[FloatUniform::MaxDestinationLuminance] = uniformLocation("maxDestinationLuminance");
+     m_floatLocations[FloatUniform::SourceReferenceLuminance] = uniformLocation("sourceReferenceLuminance");
+     m_floatLocations[FloatUniform::DestinationReferenceLuminance] = uniformLocation("destinationReferenceLuminance");
++    m_floatLocations[FloatUniform::InverseDestinationReferenceLuminance] = uniformLocation("inverseDestinationReferenceLuminance");
+     m_floatLocations[FloatUniform::MaxTonemappingLuminance] = uniformLocation("maxTonemappingLuminance");
++    m_floatLocations[FloatUniform::TonemappingV] = uniformLocation("tonemappingV");
+ 
+     m_colorLocations[ColorUniform::Color] = uniformLocation("geometryColor");
+ 
+@@ -516,29 +523,50 @@
+ 
+ void GLShader::setColorspaceUniforms(const std::shared_ptr<ColorDescription> &src, const std::shared_ptr<ColorDescription> &dst, RenderingIntent intent)
+ {
+-    setUniform(Mat4Uniform::ColorimetryTransformation, src->toOther(*dst, intent));
+-    setUniform(IntUniform::SourceNamedTransferFunction, src->transferFunction().type);
+-    if (src->transferFunction().type == TransferFunction::BT1886) {
+-        setUniform(Vec2Uniform::SourceTransferFunctionParams, QVector2D(src->transferFunction().bt1886B(), src->transferFunction().bt1886A()));
+-    } else {
+-        setUniform(Vec2Uniform::SourceTransferFunctionParams, QVector2D(src->transferFunction().minLuminance, src->transferFunction().maxLuminance - src->transferFunction().minLuminance));
++    if (m_colorUniformsValid
++        && m_colorUniformSource.get() == src.get()
++        && m_colorUniformDestination.get() == dst.get()
++        && m_colorUniformIntent == intent) {
++        return;
+     }
+-    setUniform(FloatUniform::SourceReferenceLuminance, src->referenceLuminance());
+-    setUniform(IntUniform::DestinationNamedTransferFunction, dst->transferFunction().type);
+-    if (dst->transferFunction().type == TransferFunction::BT1886) {
+-        setUniform(Vec2Uniform::DestinationTransferFunctionParams, QVector2D(dst->transferFunction().bt1886B(), dst->transferFunction().bt1886A()));
++
++    const TransferFunction sourceTransfer = src->transferFunction();
++    const TransferFunction destinationTransfer = dst->transferFunction();
++    setUniform(Mat4Uniform::ColorimetryTransformation, src->toOther(*dst, intent));
++    setUniform(IntUniform::SourceNamedTransferFunction, sourceTransfer.type);
++    if (sourceTransfer.type == TransferFunction::BT1886) {
++        setUniform(Vec2Uniform::SourceTransferFunctionParams, QVector2D(sourceTransfer.bt1886B(), sourceTransfer.bt1886A()));
+     } else {
+-        setUniform(Vec2Uniform::DestinationTransferFunctionParams, QVector2D(dst->transferFunction().minLuminance, dst->transferFunction().maxLuminance - dst->transferFunction().minLuminance));
++        setUniform(Vec2Uniform::SourceTransferFunctionParams, QVector2D(sourceTransfer.minLuminance, sourceTransfer.maxLuminance - sourceTransfer.minLuminance));
+     }
+-    setUniform(FloatUniform::DestinationReferenceLuminance, dst->referenceLuminance());
+-    setUniform(FloatUniform::MaxDestinationLuminance, dst->maxHdrLuminance().value_or(10'000));
+-    if (!s_disableTonemapping && intent == RenderingIntent::Perceptual) {
+-        setUniform(FloatUniform::MaxTonemappingLuminance, src->maxHdrLuminance().value_or(src->referenceLuminance()) * dst->referenceLuminance() / src->referenceLuminance());
++    setUniform(IntUniform::DestinationNamedTransferFunction, destinationTransfer.type);
++    if (destinationTransfer.type == TransferFunction::BT1886) {
++        setUniform(Vec2Uniform::DestinationTransferFunctionParams, QVector2D(destinationTransfer.bt1886B(), 1.0f / float(destinationTransfer.bt1886A())));
+     } else {
+-        setUniform(FloatUniform::MaxTonemappingLuminance, dst->maxHdrLuminance().value_or(10'000));
++        const float luminanceRange = float(destinationTransfer.maxLuminance - destinationTransfer.minLuminance);
++        setUniform(Vec2Uniform::DestinationTransferFunctionParams, QVector2D(destinationTransfer.minLuminance, 1.0f / luminanceRange));
+     }
++    const float destinationReferenceLuminance = dst->referenceLuminance();
++    const float maxDestinationLuminance = dst->maxHdrLuminance().value_or(10'000);
++    const float maxTonemappingLuminance = !s_disableTonemapping && intent == RenderingIntent::Perceptual
++        ? src->maxHdrLuminance().value_or(src->referenceLuminance()) * destinationReferenceLuminance / src->referenceLuminance()
++        : maxDestinationLuminance;
++    const float inputRange = maxTonemappingLuminance / destinationReferenceLuminance;
++    const float outputRange = maxDestinationLuminance / destinationReferenceLuminance;
++    const float tonemappingV = (outputRange * (1.0f + inputRange) - inputRange) / (inputRange * inputRange);
++
++    setUniform(FloatUniform::DestinationReferenceLuminance, destinationReferenceLuminance);
++    setUniform(FloatUniform::InverseDestinationReferenceLuminance, 1.0f / destinationReferenceLuminance);
++    setUniform(FloatUniform::MaxDestinationLuminance, maxDestinationLuminance);
++    setUniform(FloatUniform::MaxTonemappingLuminance, maxTonemappingLuminance);
++    setUniform(FloatUniform::TonemappingV, tonemappingV);
+     setUniform(Mat4Uniform::DestinationToLMS, dst->containerColorimetry().toLMS());
+     setUniform(Mat4Uniform::LMSToDestination, dst->containerColorimetry().fromLMS());
++
++    m_colorUniformSource = src;
++    m_colorUniformDestination = dst;
++    m_colorUniformIntent = intent;
++    m_colorUniformsValid = true;
+ }
+ 
+ }
+--- a/src/opengl/glshader.h
++++ b/src/opengl/glshader.h
+@@ -106,7 +106,9 @@
+         MaxDestinationLuminance,
+         SourceReferenceLuminance,
+         DestinationReferenceLuminance,
++        InverseDestinationReferenceLuminance,
+         MaxTonemappingLuminance,
++        TonemappingV,
+         FloatUniformCount,
+     };
+ 
+@@ -151,6 +153,7 @@
+     EglContext *const m_context;
+     unsigned int m_program;
+     bool m_locationsResolved : 1;
++    bool m_colorUniformsValid : 1;
+     QHash<Mat3Uniform, int> m_matrix3Locations;
+     QHash<Mat4Uniform, int> m_matrix4Locations;
+     QHash<Vec2Uniform, int> m_vec2Locations;
+@@ -159,6 +162,9 @@
+     QHash<FloatUniform, int> m_floatLocations;
+     QHash<IntUniform, int> m_intLocations;
+     QHash<ColorUniform, int> m_colorLocations;
++    std::shared_ptr<ColorDescription> m_colorUniformSource;
++    std::shared_ptr<ColorDescription> m_colorUniformDestination;
++    RenderingIntent m_colorUniformIntent = RenderingIntent::Perceptual;
+ 
+     friend class ShaderManager;
+ };
+--- a/src/opengl/glshadermanager.cpp
++++ b/src/opengl/glshadermanager.cpp
+@@ -50,6 +50,7 @@
+     ret += QByteArrayLiteral("#define TRAIT_ROUNDED_CORNERS ") + (traits & ShaderTrait::RoundedCorners ? "1" : "0") + "\n";
+     ret += QByteArrayLiteral("#define TRAIT_BORDER ") + (traits & ShaderTrait::Border ? "1" : "0") + "\n";
+     ret += QByteArrayLiteral("#define TRAIT_YUV_CONVERSION ") + (traits & ShaderTrait::YuvConversion ? "1" : "0") + "\n";
++    ret += QByteArrayLiteral("#define TRAIT_OPAQUE_COLORSPACE ") + (traits & ShaderTrait::OpaqueColorspace ? "1" : "0") + "\n";
+     return ret;
+ }
+ 
+--- a/src/opengl/glshadermanager.h
++++ b/src/opengl/glshadermanager.h
+@@ -33,6 +33,7 @@
+     RoundedCorners = (1 << 7),
+     Border = (1 << 8),
+     YuvConversion = (1 << 9),
++    OpaqueColorspace = (1 << 10),
+ };
+ 
+ Q_DECLARE_FLAGS(ShaderTraits, ShaderTrait)
+--- a/src/scene/itemrenderer_opengl.cpp
++++ b/src/scene/itemrenderer_opengl.cpp
+@@ -100,6 +100,31 @@
+     return QVector4D(rgb, rgb, rgb, a);
+ }
+ 
++bool ItemRendererOpenGL::colorTransformIsIdentity(const std::shared_ptr<ColorDescription> &source, const std::shared_ptr<ColorDescription> &destination, RenderingIntent intent, ColorPipeline::InputType inputType)
++{
++    for (const ColorTransformCacheEntry &entry : m_colorTransformCache) {
++        if (entry.valid
++            && entry.source.get() == source.get()
++            && entry.destination.get() == destination.get()
++            && entry.intent == intent
++            && entry.inputType == inputType) {
++            return entry.isIdentity;
++        }
++    }
++
++    ColorTransformCacheEntry &entry = m_colorTransformCache[m_nextColorTransformCacheEntry];
++    entry.source = source;
++    entry.destination = destination;
++    entry.intent = intent;
++    entry.inputType = inputType;
++    entry.isIdentity = ColorPipeline::create(source, destination, intent, inputType).isIdentity();
++    entry.valid = true;
++    if (++m_nextColorTransformCacheEntry == s_colorTransformCacheSize) {
++        m_nextColorTransformCacheEntry = 0;
++    }
++    return entry.isIdentity;
++}
++
+ void ItemRendererOpenGL::setBlendEnabled(bool enabled)
+ {
+     if (enabled && !m_blendingEnabled) {
+@@ -441,13 +466,16 @@
+             // make sure that brightness and saturation adjustments are always applied in linear space
+             traits |= ShaderTrait::TransformColorspace;
+         } else {
+-            const auto colorTransformation = ColorPipeline::create(renderNode.colorDescription, renderTarget.colorDescription(), renderNode.renderingIntent,
+-                                                                   renderNode.hasFloatingPointColor ? ColorPipeline::InputType::FloatingPoint : ColorPipeline::InputType::FixedPoint);
+-            if (!colorTransformation.isIdentity()) {
++            const auto inputType = renderNode.hasFloatingPointColor ? ColorPipeline::InputType::FloatingPoint : ColorPipeline::InputType::FixedPoint;
++            if (!colorTransformIsIdentity(renderNode.colorDescription, renderTarget.colorDescription(), renderNode.renderingIntent, inputType)) {
+                 traits |= ShaderTrait::TransformColorspace;
+             }
+         }
+ 
++        if ((traits & ShaderTrait::TransformColorspace) && !renderNode.hasAlpha && renderNode.opacity == 1.0) {
++            traits |= ShaderTrait::OpaqueColorspace;
++        }
++
+         if (renderNode.paintHole) {
+             traits = (traits & ShaderTrait::RoundedCorners) | ShaderTrait::UniformColor;
+             glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+--- a/src/scene/itemrenderer_opengl.h
++++ b/src/scene/itemrenderer_opengl.h
+@@ -6,10 +6,12 @@
+ 
+ #pragma once
+ 
++#include "core/colorpipeline.h"
+ #include "opengl/glutils.h"
+ #include "scene/itemrenderer.h"
+ #include "scene/surfaceitem.h"
+ 
++#include <array>
+ #include <unordered_set>
+ 
+ namespace KWin
+@@ -91,12 +93,25 @@
+ private:
+     QVector4D modulate(float opacity, float brightness) const;
+     void setBlendEnabled(bool enabled);
++    bool colorTransformIsIdentity(const std::shared_ptr<ColorDescription> &source, const std::shared_ptr<ColorDescription> &destination, RenderingIntent intent, ColorPipeline::InputType inputType);
+     void createRenderNode(Item *item, RenderContext *context, const std::function<bool(Item *)> &filter, const std::function<bool(Item *)> &holeFilter);
+     void visualizeFractional(const RenderViewport &viewport, const Region &logicalRegion, const RenderContext &renderContext);
+ 
+     bool m_blendingEnabled = false;
+     EglDisplay *const m_eglDisplay;
+     std::unordered_set<std::shared_ptr<SyncReleasePoint>> m_releasePoints;
++    struct ColorTransformCacheEntry
++    {
++        std::shared_ptr<ColorDescription> source;
++        std::shared_ptr<ColorDescription> destination;
++        RenderingIntent intent = RenderingIntent::Perceptual;
++        ColorPipeline::InputType inputType = ColorPipeline::InputType::FixedPoint;
++        bool isIdentity = false;
++        bool valid = false;
++    };
++    static constexpr size_t s_colorTransformCacheSize = 4;
++    std::array<ColorTransformCacheEntry, s_colorTransformCacheSize> m_colorTransformCache;
++    size_t m_nextColorTransformCacheEntry = 0;
+ 
+     struct
+     {
+

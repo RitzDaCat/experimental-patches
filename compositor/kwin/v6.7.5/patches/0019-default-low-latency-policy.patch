@@ -1,0 +1,105 @@
+Subject: [PATCH] Default the low-latency policy on behind a baked kernel gate
+
+Make adaptive scheduler margin (mode 2), adaptive render budget (mode 2),
+and VRR repaint coalescing the compiled-in defaults, gated on a kernel
+release baked in at build time (KWIN_LATENCY_BAKED_KERNEL_RELEASE) so no
+environment.d profile is required. All variables remain as opt-out
+overrides. The NVIDIA DRM color pipeline becomes explicit opt-in: its
+gate-following default turned fullscreen direct scanout purple. Clamp
+PreciseTimer deadlines to 1ns so a zero/negative deadline arms and fires
+instead of disarming the timerfd (or aborting via qFatal on EINVAL).
+---
+--- a/src/utils/precisetimer.cpp
++++ b/src/utils/precisetimer.cpp
+@@ -43,6 +43,13 @@
+ {
+     drain();
+ 
++    // timerfd disarms on it_value == {0,0} and rejects negative values, so a
++    // deadline at or before the monotonic epoch must clamp to 1ns to arm and
++    // expire immediately instead of never firing (or aborting in qFatal).
++    if (deadline <= std::chrono::nanoseconds::zero()) {
++        deadline = std::chrono::nanoseconds(1);
++    }
++
+     const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(deadline);
+     const auto nanoseconds = deadline - seconds;
+     itimerspec spec = {};
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -27,7 +27,15 @@
+ 
+ static bool experimentKernelAllowed()
+ {
+-    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++#ifdef KWIN_LATENCY_BAKED_KERNEL_RELEASE
++    // The package bakes the build machine's kernel release in so the gate
++    // holds with no environment.d profile; the variable stays as an override
++    // (set it to any other string to fail closed to stock behaviour).
++    if (expectedRelease.isEmpty()) {
++        expectedRelease = KWIN_LATENCY_BAKED_KERNEL_RELEASE;
++    }
++#endif
+     if (expectedRelease.isEmpty()) {
+         return false;
+     }
+@@ -43,13 +51,13 @@
+     environmentVariableIntValue("KWIN_COMPOSITOR_TELEMETRY_SAMPLE_DIVISOR").value_or(16), 1, 4096));
+ static const std::chrono::microseconds s_schedulerMargin{
+     s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000) : 1000};
+-// 0 = fixed, 1 = shadow (learn but don't apply), 2 = adaptive.
+-static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2) : 0;
+-// 0 = stock, 1 = shadow (learn but don't apply), 2 = adaptive.
+-static const int s_renderBudgetMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(0), 0, 2) : 0;
++// 0 = fixed, 1 = shadow (learn but don't apply), 2 = adaptive (default).
++static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(2), 0, 2) : 0;
++// 0 = stock, 1 = shadow (learn but don't apply), 2 = adaptive (default).
++static const int s_renderBudgetMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(2), 0, 2) : 0;
+ // Coalesce non-foreground VRR damage to the active surface's measured cadence.
+-// The exact-kernel gate and an explicit opt-in are both required.
+-static const bool s_vrrRepaintCoalescing = s_experimentKernelAllowed && qEnvironmentVariableIntValue("KWIN_VRR_REPAINT_COALESCING") == 1;
++// Default-on behind the exact-kernel gate; set the variable to 0 to opt out.
++static const bool s_vrrRepaintCoalescing = s_experimentKernelAllowed && environmentVariableIntValue("KWIN_VRR_REPAINT_COALESCING").value_or(1) == 1;
+ static constexpr unsigned int s_adaptiveMarginWindowSize = 256;
+ static constexpr unsigned int s_adaptiveExternalStallFallbackCount = 2;
+ static constexpr unsigned int s_adaptiveRenderBudgetWindowSize = 128;
+--- a/src/backends/drm/drm_gpu.cpp
++++ b/src/backends/drm/drm_gpu.cpp
+@@ -63,7 +63,15 @@
+ 
+ static bool experimentKernelAllowed()
+ {
+-    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++#ifdef KWIN_LATENCY_BAKED_KERNEL_RELEASE
++    // The package bakes the build machine's kernel release in so the gate
++    // holds with no environment.d profile; the variable stays as an override
++    // (set it to any other string to fail closed to stock behaviour).
++    if (expectedRelease.isEmpty()) {
++        expectedRelease = KWIN_LATENCY_BAKED_KERNEL_RELEASE;
++    }
++#endif
+     if (expectedRelease.isEmpty()) {
+         return false;
+     }
+@@ -130,13 +138,16 @@
+     const bool allowExperimentalNvidiaColorPipeline = s_experimentKernelAllowed
+         && m_drmDevice->isNvidia()
+         && m_nvidiaDriverVersion >= Version(610, 43, 3);
++    // The NVIDIA color pipeline stays explicit opt-in (KWIN_DRM_USE_COLOR_PIPELINE=1):
++    // when it defaulted on with the gate it turned fullscreen direct scanout
++    // purple, and the curve-compensation fix is not yet field-validated.
+     const bool colorPipelineRequested = s_colorPipelineEnv.value_or(
+-        (!m_drmDevice->isNvidia() && !m_drmDevice->isAmdgpu()) || allowExperimentalNvidiaColorPipeline);
++        !m_drmDevice->isNvidia() && !m_drmDevice->isAmdgpu());
+     m_colorPipelineSupported = colorPipelineRequested
+         && drmSetClientCap(fd, DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, 1) == 0;
+ 
+-    if (allowExperimentalNvidiaColorPipeline && !s_colorPipelineEnv.has_value()) {
+-        qCInfo(KWIN_DRM) << "Latency experiment enabled NVIDIA DRM plane color pipelines for driver"
++    if (allowExperimentalNvidiaColorPipeline && colorPipelineRequested) {
++        qCInfo(KWIN_DRM) << "NVIDIA DRM plane color pipelines opted in for driver"
+                          << m_nvidiaDriverVersion->toString();
+         if (!m_colorPipelineSupported) {
+             qCWarning(KWIN_DRM) << "NVIDIA DRM plane color pipeline capability request failed";

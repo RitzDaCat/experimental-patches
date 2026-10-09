@@ -1,0 +1,90 @@
+Subject: [PATCH] audio: reuse input read buffers
+
+Base:   goxlr-utility tag v1.2.4 (0c093b4c9bfb59d3426357c008760ad6620f97ae).
+About:  why it exists and what to expect: README.md next to this file.
+
+diff --git a/audio/src/audio.rs b/audio/src/audio.rs
+index 6ae2877..b8cad8e 100644
+--- a/audio/src/audio.rs
++++ b/audio/src/audio.rs
+@@ -16,7 +16,7 @@ pub trait AudioOutput {
+ }
+ 
+ pub trait AudioInput {
+-    fn read(&mut self) -> Result<Vec<f32>>;
++    fn read(&mut self) -> Result<&[f32]>;
+     fn flush(&mut self);
+ }
+ 
+diff --git a/audio/src/cpal/cpal_record.rs b/audio/src/cpal/cpal_record.rs
+index 4ca2f7b..ca1bdfd 100644
+--- a/audio/src/cpal/cpal_record.rs
++++ b/audio/src/cpal/cpal_record.rs
+@@ -84,7 +84,7 @@ impl OpenInputStream for CpalRecord {
+ }
+ 
+ impl AudioInput for CpalRecord {
+-    fn read(&mut self) -> Result<Vec<f32>> {
++    fn read(&mut self) -> Result<&[f32]> {
+         // Check if the Stream has been Closed by CPAL..
+         if self.stream_closed.load(Ordering::Relaxed) {
+             bail!("Audio Stream has been closed.");
+@@ -99,11 +99,11 @@ impl AudioInput for CpalRecord {
+             .read_blocking_timeout(&mut self.read_buffer, timeout);
+ 
+         if let Ok(Some(samples)) = read {
+-            return Ok(Vec::from(&self.read_buffer[0..samples]));
++            return Ok(&self.read_buffer[0..samples]);
+         };
+ 
+-        // No samples passed in, or timeout hit, return an empty vec..
+-        Ok(vec![])
++        // No samples passed in, or timeout hit, return an empty slice.
++        Ok(&[])
+     }
+ 
+     fn flush(&mut self) {
+diff --git a/audio/src/pulse/pulse_record.rs b/audio/src/pulse/pulse_record.rs
+index 91b5dcc..ee10a1b 100644
+--- a/audio/src/pulse/pulse_record.rs
++++ b/audio/src/pulse/pulse_record.rs
+@@ -10,6 +10,7 @@ const BUFFER_SIZE: usize = 1024;
+ pub struct PulseRecord {
+     pulse_simple: Simple,
+     buffer: [u8; BUFFER_SIZE],
++    samples: [f32; BUFFER_SIZE / std::mem::size_of::<f32>()],
+ }
+ 
+ impl OpenInputStream for PulseRecord {
+@@ -65,6 +66,7 @@ impl OpenInputStream for PulseRecord {
+         match pulse {
+             Ok(pulse_simple) => Ok(Box::new(PulseRecord {
+                 buffer: [0; BUFFER_SIZE],
++                samples: [0.0; BUFFER_SIZE / std::mem::size_of::<f32>()],
+                 pulse_simple,
+             })),
+             Err(_) => Err(anyhow!("Unable to Connect to Pulse")),
+@@ -73,17 +75,16 @@ impl OpenInputStream for PulseRecord {
+ }
+ 
+ impl AudioInput for PulseRecord {
+-    fn read(&mut self) -> Result<Vec<f32>> {
++    fn read(&mut self) -> Result<&[f32]> {
+         self.pulse_simple.read(&mut self.buffer)?;
+ 
+-        // Convert the buffer into f32 samples..
+-        let mut samples = vec![];
+-        for chunk in self.buffer.chunks(4) {
+-            samples.push(f32::from_le_bytes(<[u8; 4]>::try_from(chunk)?));
++        // Reuse the conversion buffer. This path runs for every sampler input
++        // fragment, even when no sampler button is actively recording.
++        for (sample, chunk) in self.samples.iter_mut().zip(self.buffer.chunks_exact(4)) {
++            *sample = f32::from_le_bytes(<[u8; 4]>::try_from(chunk)?);
+         }
+ 
+-        // Throw back the samples.
+-        Ok(samples)
++        Ok(&self.samples)
+     }
+ 
+     fn flush(&mut self) {

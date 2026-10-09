@@ -1,0 +1,1018 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Modified 2026-10-08: add standalone source-only verification.
+
+set -euo pipefail
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+PACKAGE_DIR="$ROOT/artifacts/packages"
+SOURCE_DIR="$ROOT/artifacts/sources"
+RESULTS_DIR="$ROOT/artifacts/results"
+BUILD_DIR="$ROOT/artifacts/build"
+PROFILE="${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/90-kwin-latency.conf"
+MANIFEST="$ROOT/artifacts/SHA256SUMS"
+RELEASE_FILE="$ROOT/artifacts/RELEASE"
+GAME_WRAPPER="$ROOT/bin/kwin-latency-game"
+DRY_RUN=0
+ASSUME_YES=0
+
+# The live policy layer. Revision 22 reads this kwinrc group on
+# org.kde.KWin.reconfigure, which "kwriteconfig6 --notify" raises, so a write
+# here changes the running compositor. The environment.d profile below stays as
+# the boot-time default and the exact-kernel gate stays as the safety
+# AND-condition; neither is replaced by this group.
+KWINRC_FILE=kwinrc
+KWINRC_GROUP=LatencyExperiment
+
+kwinrc_keys=(
+    Enabled
+    SchedulerMarginMode
+    RenderBudgetMode
+    VrrRepaintCoalescing
+    SchedulerMarginUs
+)
+
+managed_variables=(
+    KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE
+    KWIN_ADAPTIVE_COMPOSITOR_MARGIN
+    KWIN_VRR_REPAINT_COALESCING
+    KWIN_ADAPTIVE_RENDER_BUDGET
+    KWIN_LATENCY_CAPTURE
+    KWIN_LOG_PERFORMANCE_DATA
+    KWIN_COMPOSITOR_TELEMETRY_SAMPLE_DIVISOR
+    KWIN_COMPOSITOR_SCHEDULING_MARGIN_US
+    KWIN_INPUT_LATENCY_TELEMETRY
+    KWIN_INPUT_LATENCY_TELEMETRY_SAMPLE_DIVISOR
+    KWIN_INPUT_LATENCY_TELEMETRY_INTERVAL_MS
+)
+
+usage() {
+    cat <<'EOF'
+KWin timerfd experiment lifecycle
+
+Usage: ./bin/kwin-latencyctl [--dry-run] [--yes] COMMAND [OPTIONS]
+
+Commands:
+  status                  Show installed, candidate, kernel-gate, and live state
+  install [OPTIONS]       Install the candidate; installing enables nothing
+  enable [--kernel REL]   Opt in to the one reviewed low-latency policy
+  esports [--kernel REL]  Opt in to the esports policy (active adaptive render budget)
+  game [--off] -- CMD     Opt in for one command only, then restore (Steam)
+  capture-on [OPTIONS]    Enable bounded tracing for the next KWin session
+  capture-off [OPTIONS]   Return to the lowest-overhead reviewed policy
+  disable                 Opt back out; remove all project configuration
+  test [--source-only]     Verify models, graphs, source overlay; optionally package
+  snapshot [LABEL]        Save read-only system and display evidence
+  trace [LABEL]           Measure precision timing plus isolated state sampling
+  color-test              Show exact RGB/CMY/gray blocks for visual validation
+  build                   Build a new package into artifacts/packages
+  rollback                Restore signed repository KWin and disable experiments
+  remove                  Restore repository KWin and remove project config
+  help                    Show this help
+
+Install options:
+  --package PATH          Package to install (default: newest local package)
+  --kernel REL            Exact kernel allowed to activate the experiment
+  --capture               Stage bounded capture with the install for one reboot
+
+Capture options:
+  --kernel REL            Exact kernel allowed to activate capture
+
+Global options:
+  --dry-run               Print mutations without executing them
+  --yes                   Skip confirmation prompts
+
+Opt-in model (revision 22 and later):
+  The compositor defaults OFF. Installing the package changes nothing until you
+  opt in, and the exact-kernel gate still has to match or the policy fails
+  closed to stock. "enable" and "esports" opt in by writing the kwinrc group
+  LatencyExperiment with --notify, which a revision 22 compositor applies to
+  the running session immediately; older revisions apply it at the next login.
+  "disable" removes the group and opts back out. "status" prints the resulting
+  state on one line.
+
+Per-game opt-in:
+  Add this to a Steam title's launch options to opt in for that title only:
+
+      kwin-latency-game -- %command%
+
+  Before the package installs that wrapper, the same thing runs from this repo:
+
+      ./bin/kwin-latencyctl game -- COMMAND [ARGS...]
+
+There are intentionally no public tuning presets. "enable" applies the single
+reviewed policy; "disable" returns to stock behavior.
+EOF
+}
+
+note() {
+    printf '%s\n' "$*"
+}
+
+warn() {
+    printf 'warning: %s\n' "$*" >&2
+}
+
+die() {
+    printf 'error: %s\n' "$*" >&2
+    exit 1
+}
+
+run() {
+    if (( DRY_RUN )); then
+        printf 'DRY RUN:'
+        printf ' %q' "$@"
+        printf '\n'
+    else
+        "$@"
+    fi
+}
+
+confirm() {
+    local prompt=$1 reply
+    if (( ASSUME_YES || DRY_RUN )); then
+        return 0
+    fi
+    read -r -p "$prompt [y/N] " reply
+    [[ $reply == y || $reply == Y || $reply == yes || $reply == YES ]] || die "cancelled"
+}
+
+newest_package() {
+    local candidate
+    candidate=$(awk -F= '$1 == "CANDIDATE_PACKAGE" { print $2; exit }' "$RELEASE_FILE")
+    [[ -f $PACKAGE_DIR/$candidate ]] && printf '%s\n' "$PACKAGE_DIR/$candidate"
+}
+
+release_version() {
+    awk -F= '$1 == "PACMAN_VERSION" { print $2; exit }' "$RELEASE_FILE"
+}
+
+project_revision() {
+    awk -F= '$1 == "PROJECT_REVISION" { print $2; exit }' "$RELEASE_FILE"
+}
+
+package_field() {
+    local package=$1 field=$2
+    pacman -Qip "$package" | awk -F ' *: *' -v wanted="$field" '$1 == wanted { print $2; exit }'
+}
+
+# The build bakes the build machine's kernel release into libkwin as the
+# default experiment gate. Read it back from the installed library so status
+# can say whether the running kernel still matches. A mismatch is the
+# silent-stock trap: every patch fails closed and a measurement means nothing.
+# The release is the only strings(1) line shaped like x.y.z-N-name, verified
+# unique on the shipped build; no match means a stock library.
+installed_baked_release() {
+    local library
+    library=$(ls -1 /usr/lib/libkwin.so.[0-9]*.[0-9]*.[0-9]* 2>/dev/null | head -n 1)
+    [[ -n $library ]] || return 0
+    strings -a "$library" 2>/dev/null \
+        | grep -m1 -xE '[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?-[0-9]+-[A-Za-z0-9._+-]+' \
+        || true
+}
+
+# Read the KWin version the configured repository would install. Every version
+# policy below compares against this rather than a literal, because a literal
+# rejects every package the moment the repository moves.
+repository_kwin_version() {
+    local version
+    version=$(pacman -Si kwin 2>/dev/null \
+        | awk -F ' *: *' '$1 == "Version" { print $2; exit }')
+    [[ -n $version ]] || die "could not read the configured repository KWin version"
+    printf '%s\n' "$version"
+}
+
+# Fail unless a marker string is present in the extracted library strings.
+# Mode "exact" matches a whole line, "substring" matches anywhere. Feature
+# detection reads the compiled binary because package metadata records what the
+# recipe intended, not what the compiler actually emitted.
+require_marker() {
+    local strings_file=$1 mode=$2 marker=$3 message=$4
+    case $mode in
+        exact) grep -Fxq "$marker" "$strings_file" || die "$message" ;;
+        substring) grep -Fq "$marker" "$strings_file" || die "$message" ;;
+        *) die "require_marker: unknown mode '$mode'" ;;
+    esac
+}
+
+# Enforce the version policy for a candidate: it must equal both the promoted
+# release and the repository package, so a later repository update still wins a
+# normal system upgrade. Also confirms the metadata names the promoted revision.
+verify_candidate_identity() {
+    local package=$1 version=$2 repository_version
+    [[ $version == "$(release_version)" ]] \
+        || die "unsafe candidate version $version; required repo-matching version is $(release_version)"
+    repository_version=$(repository_kwin_version)
+    [[ $(vercmp "$version" "$repository_version") -eq 0 ]] \
+        || die "candidate $version must equal repository KWin $repository_version; rebase instead"
+    # Read into a variable rather than piping: grep -q exits on first match,
+    # which SIGPIPEs bsdtar, and under `set -o pipefail` that fails the whole
+    # pipeline. Same pattern the PKGBUILD and install.sh already use.
+    local metadata
+    metadata=$(bsdtar -xOf "$package" .PKGINFO)
+    grep -Fxq "xdata = kwin-latency-revision=$(project_revision)" <<<"$metadata" \
+        || die "package metadata does not identify project revision $(project_revision)"
+}
+
+# Accept a rollback or stock package on the repository's current version series.
+# This was a 6.7.3-* literal, which rejected every package the moment the
+# repository moved to 6.7.4.
+verify_rollback_identity() {
+    local version=$1 series
+    series=$(repository_kwin_version)
+    [[ $version == "${series%%-*}"-* ]] \
+        || die "unsupported KWin package version: $version (repository is $series)"
+}
+
+# Compare the package against its pinned checksum. A package with no manifest
+# entry is allowed through with a warning, because rollback and stock packages
+# are legitimately unpinned.
+verify_package_checksum() {
+    local package=$1 expected actual
+    expected=$(awk -v file="packages/$(basename "$package")" '$2 == file { print $1 }' "$MANIFEST")
+    if [[ -z $expected ]]; then
+        warn "no pinned checksum for $(basename "$package"); metadata only was verified"
+        return 0
+    fi
+    actual=$(sha256sum "$package" | awk '{print $1}')
+    [[ $actual == "$expected" ]] || die "package SHA-256 mismatch for $(basename "$package")"
+}
+
+# Extract libkwin from the package and write its strings to stdout. The soname
+# is read out of the archive rather than named: the literal
+# usr/lib/libkwin.so.6.7.3 made bsdtar fail with "Not found in archive" on the
+# 6.7.4 package. The regex requires all three version components so it picks the
+# library, not the libkwin.so / libkwin.so.6 symlinks beside it.
+extract_library_strings() {
+    local package=$1 destination=$2 libkwin listing
+    listing=$(bsdtar -tf "$package")
+    libkwin=$(grep -m1 -E '^usr/lib/libkwin\.so\.[0-9]+\.[0-9]+\.[0-9]+$' <<<"$listing") \
+        || die "package contains no versioned usr/lib/libkwin.so.* library"
+    bsdtar -xOf "$package" "$libkwin" > "$destination/libkwin.so"
+    strings "$destination/libkwin.so" > "$destination/strings.txt"
+}
+
+# Confirm the compiled binary carries every feature the promoted revision claims.
+# The list grows by revision, so each gate names the revision that introduced it
+# and a package missing one is rejected rather than silently installed.
+verify_candidate_features() {
+    local strings_file=$1 revision
+    revision=$(project_revision)
+    require_marker "$strings_file" exact 'KWIN_VRR_REPAINT_COALESCING' \
+        "package lacks the revision 3.9 VRR policy"
+    require_marker "$strings_file" exact 'KWIN_LATENCY_CAPTURE' \
+        "package lacks the revision 3.10 bounded capture mode"
+    if (( revision >= 20 )); then
+        # Revision 20 flips the NVIDIA color pipeline to explicit opt-in and
+        # rewords the log line; the old marker no longer exists.
+        require_marker "$strings_file" exact 'NVIDIA DRM plane color pipelines opted in for driver' \
+            "package lacks the revision 20 opt-in NVIDIA color-pipeline gate"
+    else
+        require_marker "$strings_file" exact 'Latency experiment enabled NVIDIA DRM plane color pipelines for driver' \
+            "package lacks the revision 12 NVIDIA color-pipeline gate"
+    fi
+    require_marker "$strings_file" substring 'setDirectScanoutColor' \
+        "package lacks the revision 13 bounded direct-scanout color cache"
+    require_marker "$strings_file" exact 'inverseDestinationReferenceLuminance' \
+        "package lacks the revision 13 color-shader reciprocal path"
+    require_marker "$strings_file" exact 'Compensating non-bypassable DRM color operations for direct scanout' \
+        "package lacks the revision 14 mandatory color-operation compensation"
+    (( revision >= 15 )) || return 0
+    require_marker "$strings_file" substring 'frame created timestamp' \
+        "package lacks the revision 15 correlated frame capture"
+    require_marker "$strings_file" substring 'scene frame and postpaint duration' \
+        "package lacks the corrected revision 15 phase schema"
+    require_marker "$strings_file" exact 'kwin drm color match.log' \
+        "package lacks the revision 15 cold-path color diagnostics"
+    require_marker "$strings_file" substring ' duration_ns=' \
+        "package lacks the revision 15 color wall-clock measurements"
+    (( revision >= 22 )) || return 0
+    # Revision 22 adds the runtime opt-in read from kwinrc. The group name is a
+    # QString (UTF-16, invisible to strings), so gate on the boot-time override
+    # variable, which only the revision 22 opt-in path reads as a char literal.
+    require_marker "$strings_file" exact 'KWIN_LATENCY_EXPERIMENT' \
+        "package lacks the revision 22 runtime opt-in policy"
+}
+
+# Refuse to hand pacman anything that is not the package this project promoted.
+# Checks identity, pinned checksum, and compiled features in that order, and
+# dies on the first failure so a partial pass never reads as a pass.
+verify_package() {
+    local package=$1 required_features=${2:-candidate} name version tmp
+    [[ -f $package ]] || die "package not found: $package"
+    command -v pacman >/dev/null || die "pacman is required to inspect the package"
+    name=$(package_field "$package" Name)
+    version=$(package_field "$package" Version)
+    [[ $name == kwin ]] || die "package is '$name', not kwin"
+
+    if [[ $required_features == candidate ]]; then
+        verify_candidate_identity "$package" "$version"
+    else
+        verify_rollback_identity "$version"
+    fi
+    verify_package_checksum "$package"
+
+    tmp=$(mktemp -d)
+    trap 'rm -rf -- "$tmp"' RETURN
+    extract_library_strings "$package" "$tmp"
+    require_marker "$tmp/strings.txt" exact 'KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE' \
+        "package lacks the exact-kernel safety gate"
+    if [[ $required_features == candidate ]]; then
+        verify_candidate_features "$tmp/strings.txt"
+    fi
+    rm -rf -- "$tmp"
+    trap - RETURN
+
+    note "Verified package: kwin $version ($(basename "$package"))"
+}
+
+backup_profile() {
+    [[ -f $PROFILE ]] || return 0
+    local destination="$RESULTS_DIR/profile-backups/90-kwin-latency.$(date +%Y%m%d-%H%M%S-%N).conf"
+    run mkdir -p "$(dirname "$destination")"
+    run cp -a "$PROFILE" "$destination"
+    note "Profile backup: $destination"
+}
+
+clear_manager_environment() {
+    command -v systemctl >/dev/null || return 0
+    if (( DRY_RUN )); then
+        run systemctl --user unset-environment "${managed_variables[@]}"
+    elif ! systemctl --user unset-environment "${managed_variables[@]}"; then
+        warn "could not clear the current user manager environment; a full logout still clears it"
+    fi
+}
+
+sync_enabled_environment() {
+    local kernel=$1 capture=${2:-0} budget=${3:-0}
+    clear_manager_environment
+    local -a settings=(
+        "KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE=$kernel"
+        KWIN_ADAPTIVE_COMPOSITOR_MARGIN=2
+        KWIN_VRR_REPAINT_COALESCING=1
+    )
+    if [[ $capture == 1 ]]; then
+        settings+=(KWIN_LATENCY_CAPTURE=1 KWIN_ADAPTIVE_RENDER_BUDGET=1)
+    elif [[ $budget == 2 ]]; then
+        settings+=(KWIN_ADAPTIVE_RENDER_BUDGET=2)
+    fi
+    if (( DRY_RUN )); then
+        run systemctl --user set-environment "${settings[@]}"
+    elif ! systemctl --user set-environment "${settings[@]}"; then
+        warn "could not update the current user manager environment; the next login still reads the profile"
+    fi
+}
+
+# The KConfig command line tools ship with Plasma but are not guaranteed on a
+# machine that only builds the package, so every kwinrc path degrades to a
+# warning rather than dying. The environment.d profile is written either way.
+kwinrc_tools_present() {
+    command -v kreadconfig6 >/dev/null && command -v kwriteconfig6 >/dev/null
+}
+
+# Empty output means the key is absent: kreadconfig6 prints nothing and exits 0
+# for a key that does not exist, so callers cannot tell absent from empty and
+# must not try.
+kwinrc_read() {
+    local key=$1
+    command -v kreadconfig6 >/dev/null || return 0
+    kreadconfig6 --file "$KWINRC_FILE" --group "$KWINRC_GROUP" --key "$key" 2>/dev/null || true
+}
+
+# --notify is what makes the write live. Without it the value sits in kwinrc
+# until the next login, which is the exact restart requirement this group exists
+# to remove. Routed through "run" so --dry-run prints it instead of doing it.
+kwinrc_write() {
+    local key=$1 value=$2
+    if ! kwinrc_tools_present; then
+        warn "kwriteconfig6 not found; the live kwinrc policy was not updated"
+        return 0
+    fi
+    run kwriteconfig6 --file "$KWINRC_FILE" --group "$KWINRC_GROUP" --key "$key" \
+        --notify "$value"
+}
+
+# kwriteconfig6 has no group delete: "--delete" with no "--key" exits 0 and
+# changes nothing. Deleting every key the compositor reads removes the group,
+# because KConfig drops a group once its last entry is gone.
+kwinrc_delete_group() {
+    local key
+    if ! kwinrc_tools_present; then
+        warn "kwriteconfig6 not found; the live kwinrc policy was not updated"
+        return 0
+    fi
+    for key in "${kwinrc_keys[@]}"; do
+        run kwriteconfig6 --file "$KWINRC_FILE" --group "$KWINRC_GROUP" --key "$key" \
+            --notify --delete
+    done
+}
+
+note_kwinrc_effect() {
+    note "The kwinrc policy is live immediately on a revision 22 compositor."
+    note "Older revisions read it only at startup and still need a full logout/login."
+}
+
+write_policy() {
+    local kernel=$1 capture=${2:-0} budget=${3:-0} directory tmp
+    [[ -n $kernel ]] || die "kernel release cannot be empty"
+    [[ $kernel != *$'\n'* ]] || die "invalid kernel release"
+    directory=$(dirname "$PROFILE")
+    backup_profile
+
+    if (( DRY_RUN )); then
+        note "Would write $PROFILE:"
+        cat <<EOF
+# Managed by kwin-latencyctl. Use "disable" instead of editing this file.
+KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE=$kernel
+KWIN_ADAPTIVE_COMPOSITOR_MARGIN=2
+KWIN_VRR_REPAINT_COALESCING=1
+EOF
+        if [[ $capture == 1 ]]; then
+            cat <<'EOF'
+KWIN_LATENCY_CAPTURE=1
+KWIN_ADAPTIVE_RENDER_BUDGET=1
+EOF
+        elif [[ $budget == 2 ]]; then
+            cat <<'EOF'
+KWIN_ADAPTIVE_RENDER_BUDGET=2
+EOF
+        fi
+    else
+        mkdir -p "$directory"
+        tmp=$(mktemp "$directory/.90-kwin-latency.XXXXXX")
+        cat > "$tmp" <<EOF
+# Managed by kwin-latencyctl. Use "disable" instead of editing this file.
+KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE=$kernel
+KWIN_ADAPTIVE_COMPOSITOR_MARGIN=2
+KWIN_VRR_REPAINT_COALESCING=1
+EOF
+        if [[ $capture == 1 ]]; then
+            cat >> "$tmp" <<'EOF'
+KWIN_LATENCY_CAPTURE=1
+KWIN_ADAPTIVE_RENDER_BUDGET=1
+EOF
+        elif [[ $budget == 2 ]]; then
+            cat >> "$tmp" <<'EOF'
+KWIN_ADAPTIVE_RENDER_BUDGET=2
+EOF
+        fi
+        chmod 0644 "$tmp"
+        mv -f "$tmp" "$PROFILE"
+    fi
+    sync_enabled_environment "$kernel" "$capture" "$budget"
+    if [[ $capture == 1 ]]; then
+        note "Bounded capture enabled for kernel: $kernel"
+        note "Adaptive render-budget learning is shadow-only and cannot change scheduling."
+    elif [[ $budget == 2 ]]; then
+        note "Esports policy enabled for kernel: $kernel"
+        note "Adaptive render budget is ACTIVE: prediction uses raw render times and bypasses the stock 2 ms floor."
+    else
+        note "Enabled reviewed policy for kernel: $kernel"
+        note "Telemetry and adaptive render-budget control are off by default."
+    fi
+    note "A full logout/login or reboot is required before KWin changes."
+}
+
+enable_policy() {
+    write_policy "$1" 0
+}
+
+capture_policy() {
+    local kernel=$1 capture=$2
+    write_policy "$kernel" "$capture"
+}
+
+disable_policy() {
+    backup_profile
+    if [[ -e $PROFILE ]]; then
+        run rm -f "$PROFILE"
+    else
+        note "No project profile is installed."
+    fi
+    clear_manager_environment
+    # Opting out has to clear the live layer too, or the session keeps running
+    # the policy whose profile was just deleted.
+    kwinrc_delete_group
+    note "Project overrides removed; no environment.d profile is installed."
+    note "Opt-in (kwinrc):  removed; the compositor is back on stock policy."
+    note "On revision 22+ opted out means stock behavior, and the kwinrc change is live now."
+    note "The environment.d removal itself reaches KWin at the next full logout/login."
+    note "To remove the patched package entirely, run 'rollback'."
+    note_kwinrc_effect
+}
+
+profile_value() {
+    local key=$1
+    [[ -f $PROFILE ]] || return 0
+    awk -F= -v key="$key" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$PROFILE"
+}
+
+# Section 6 of the tester opt-in design: with the default off, "I saw no
+# difference" is the most common report and is indistinguishable from "the
+# patches do not work" unless state is unmissable. So print the policy as one
+# unambiguous line, then the raw group so a mislabelled report is detectable.
+kwinrc_status() {
+    local enabled key value
+    if ! command -v kreadconfig6 >/dev/null; then
+        note "Opt-in (kwinrc):  unknown (kreadconfig6 not installed)"
+        return 0
+    fi
+    enabled=$(kwinrc_read Enabled)
+    case $enabled in
+        true|1) note "Opt-in (kwinrc):  enabled" ;;
+        false|0) note "Opt-in (kwinrc):  disabled (stock policy)" ;;
+        "") note "Opt-in (kwinrc):  disabled (stock policy; key absent, revision 22 defaults off)" ;;
+        *) note "Opt-in (kwinrc):  unreadable value '$enabled' (treated as disabled)" ;;
+    esac
+    for key in "${kwinrc_keys[@]}"; do
+        value=$(kwinrc_read "$key")
+        note "  LatencyExperiment/$key: ${value:-absent}"
+    done
+}
+
+status_command() {
+    local candidate installed gate adaptive vrr budget capture live_pid live_gate live_capture kernels baked
+    installed=$(pacman -Q kwin 2>/dev/null || true)
+    candidate=$(newest_package || true)
+    gate=$(profile_value KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE)
+    adaptive=$(profile_value KWIN_ADAPTIVE_COMPOSITOR_MARGIN)
+    vrr=$(profile_value KWIN_VRR_REPAINT_COALESCING)
+    budget=$(profile_value KWIN_ADAPTIVE_RENDER_BUDGET)
+    capture=$(profile_value KWIN_LATENCY_CAPTURE)
+    kernels=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null \
+        | sort -V | tr '\n' ' ' || true)
+
+    note "Installed:       ${installed:-not found}"
+    note "Running kernel:  $(uname -r)"
+    note "Bootable kernels: ${kernels:-not found}"
+    baked=$(installed_baked_release)
+    if [[ -z $baked ]]; then
+        note "Baked gate:      none found in libkwin (stock library?)"
+    elif [[ $baked == "$(uname -r)" ]]; then
+        note "Baked gate:      $baked (matches the running kernel)"
+    else
+        note "Baked gate:      $baked -- MISMATCH with running $(uname -r)"
+        note "                 every patch is inert (stock behavior); rebuild with ./install.sh to re-gate"
+    fi
+    note "Candidate:       ${candidate:-not found}"
+    if [[ -f $PROFILE ]]; then
+        if [[ $adaptive == 2 && $vrr == 1 && $budget == 2 ]]; then
+            note "Policy:          esports policy enabled (active render budget)"
+        elif [[ $adaptive == 2 && $vrr == 1 ]]; then
+            note "Policy:          reviewed policy enabled"
+        else
+            note "Policy:          legacy/custom profile (run 'enable' to normalize)"
+        fi
+        note "Kernel gate:     ${gate:-invalid profile}"
+        if [[ $capture == 1 ]]; then
+            note "Capture:         enabled after KWin restart"
+        else
+            note "Capture:         off (lowest-overhead mode)"
+        fi
+        if [[ $gate == "$(uname -r)" ]]; then
+            note "Gate state:      active after KWin restart"
+        else
+            note "Gate state:      fail-closed (release mismatch)"
+        fi
+    else
+        note "Policy:          no profile (revision 20+ compiled defaults apply)"
+    fi
+    kwinrc_status
+
+    live_pid=$(pgrep -n -x kwin_wayland 2>/dev/null || true)
+    if [[ -n $live_pid ]]; then
+        note "Live KWin PID:    $live_pid"
+        if [[ -r /proc/$live_pid/environ ]]; then
+            live_gate=$(tr '\0' '\n' < "/proc/$live_pid/environ" \
+                | awk -F= '$1 == "KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE" { print $2; exit }')
+            live_capture=$(tr '\0' '\n' < "/proc/$live_pid/environ" \
+                | awk -F= '$1 == "KWIN_LATENCY_CAPTURE" { print $2; exit }')
+            note "Live kernel gate: ${live_gate:-unset}"
+            note "Live capture:     ${live_capture:-off}"
+            [[ $live_gate == "$(uname -r)" ]] || note "Live state:       stock/fail-closed until restart"
+        else
+            note "Live policy env:  protected by process security"
+        fi
+    else
+        note "Live KWin:        not running"
+    fi
+
+    if [[ -x /usr/bin/kwin_wayland ]]; then
+        note "Installed caps:   $(getcap /usr/bin/kwin_wayland 2>/dev/null || printf 'unavailable')"
+    fi
+}
+
+install_command() {
+    local package kernel capture=0 kernel_explicit=0
+    package=$(newest_package || true)
+    kernel=$(uname -r)
+    while (( $# )); do
+        case $1 in
+            --package) [[ $# -ge 2 ]] || die "--package needs a path"; package=$2; shift 2 ;;
+            --kernel) [[ $# -ge 2 ]] || die "--kernel needs a release"; kernel=$2; kernel_explicit=1; shift 2 ;;
+            --capture) capture=1; shift ;;
+            *) die "unknown install option: $1" ;;
+        esac
+    done
+    [[ -n $package ]] || die "no local KWin package found in $PACKAGE_DIR"
+    package=$(realpath "$package")
+    verify_package "$package"
+    note "Safety gate target: $kernel"
+    if [[ $capture == 1 ]]; then
+        confirm "Install $(basename "$package") and stage bounded capture for one reboot?"
+    else
+        confirm "Install $(basename "$package") and enable the reviewed policy?"
+    fi
+    run sudo pacman -U "$package"
+    if [[ $capture == 1 || $kernel_explicit == 1 ]]; then
+        write_policy "$kernel" "$capture"
+    else
+        # Revision 20+ bakes the gate and the low-latency defaults into the
+        # binary; a plain install needs no environment.d profile at all.
+        disable_policy
+    fi
+}
+
+enable_command() {
+    local kernel
+    kernel=$(uname -r)
+    while (( $# )); do
+        case $1 in
+            --kernel) [[ $# -ge 2 ]] || die "--kernel needs a release"; kernel=$2; shift 2 ;;
+            *) die "unknown enable option: $1" ;;
+        esac
+    done
+    enable_policy "$kernel"
+    # Revision 22 ships opted out. The profile above is the boot-time default;
+    # this is the opt-in the running compositor actually reads.
+    kwinrc_write Enabled true
+    note "Opt-in (kwinrc):  enabled"
+    note_kwinrc_effect
+}
+
+esports_command() {
+    local kernel
+    kernel=$(uname -r)
+    while (( $# )); do
+        case $1 in
+            --kernel) [[ $# -ge 2 ]] || die "--kernel needs a release"; kernel=$2; shift 2 ;;
+            *) die "unknown esports option: $1" ;;
+        esac
+    done
+    write_policy "$kernel" 0 2
+    # RenderBudgetMode 2 is the active render budget, the one setting that
+    # separates the esports policy from the reviewed one.
+    kwinrc_write Enabled true
+    kwinrc_write RenderBudgetMode 2
+    note "Opt-in (kwinrc):  enabled (esports; active render budget)"
+    note_kwinrc_effect
+}
+
+# Per-game opt-in lives in a standalone script so the PKGBUILD can install it to
+# /usr/bin for Steam launch options. This subcommand is a passthrough to the
+# in-repo copy, so the mechanism works before the package ships it.
+game_command() {
+    [[ -x $GAME_WRAPPER ]] || die "per-game wrapper not found or not executable: $GAME_WRAPPER"
+    exec "$GAME_WRAPPER" "$@"
+}
+
+capture_command() {
+    local capture=$1 kernel
+    shift
+    kernel=$(profile_value KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE)
+    kernel=${kernel:-$(uname -r)}
+    while (( $# )); do
+        case $1 in
+            --kernel) [[ $# -ge 2 ]] || die "--kernel needs a release"; kernel=$2; shift 2 ;;
+            *) die "unknown capture option: $1" ;;
+        esac
+    done
+    capture_policy "$kernel" "$capture"
+}
+
+test_command() {
+    local source_only=0
+    if [[ ${1:-} == --source-only && $# == 1 ]]; then
+        source_only=1
+    elif (( $# )); then
+        die "test accepts only --source-only"
+    fi
+    note "Running reference-model and analyzer tests..."
+    (cd "$ROOT" && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests)
+    note "Checking generated README graphs..."
+    (cd "$ROOT" && python3 scripts/generate_readme_graphs.py --check)
+    note "Verifying pristine and fully patched source references..."
+    "$ROOT/scripts/verify_reference_sources.sh"
+    if (( source_only )); then
+        note "Source verification passed; package, live behavior and performance were not checked."
+        return 0
+    fi
+    local package candidate_name
+    package=$(newest_package || true)
+    candidate_name=$(awk -F= '$1 == "CANDIDATE_PACKAGE" { print $2; exit }' "$RELEASE_FILE")
+    [[ -n $package ]] || die "release package $candidate_name has not been built"
+    verify_package "$package"
+    note "All project tests passed. No system state was changed."
+}
+
+# Print "label=value" for a sysfs attribute, or a placeholder when the attribute
+# is missing. Snapshots are forensic evidence, so an absent attribute has to
+# appear in the file as absent rather than as nothing at all. The label is
+# explicit because callers name the device, not the attribute file.
+print_attribute() {
+    local label=$1 path=$2 placeholder=${3:-unknown}
+    printf '%s=' "$label"
+    cat "$path" 2>/dev/null || printf '%s\n' "$placeholder"
+}
+
+# Print per-thread scheduler counters for one process. Latency work lives in
+# individual threads, so a process-level view hides the compositor's render
+# thread behind its idle siblings.
+snapshot_thread_schedstats() {
+    local pid=$1 task name
+    [[ -n $pid ]] || return 0
+    for task in /proc/"$pid"/task/*; do
+        [[ -r $task/comm && -r $task/schedstat ]] || continue
+        read -r name < "$task/comm"
+        printf 'tid=%s name=%s schedstat=' "${task##*/}" "$name"
+        cat "$task/schedstat"
+    done
+}
+
+# Package and kernel identity. Every other file is only interpretable against
+# the exact KWin build and kernel release that produced it.
+snapshot_system_identity() {
+    uname -a
+    pacman -Q kwin linux-cachyos linux-cachyos-lts 2>&1 || true
+    printf '\nInstalled kernel module trees:\n'
+    find /usr/lib/modules -mindepth 1 -maxdepth 1 -printf '%f\n' 2>/dev/null | sort -V
+}
+
+# Thread scheduling state for the compositor and the audio graph, plus the
+# CPU frequency policy. A wake that missed its deadline is usually a scheduling
+# fact, not a compositor fact, and this is the evidence that separates them.
+snapshot_scheduling() {
+    printf 'Process and thread scheduling state:\n'
+    ps -eLo user,pid,tid,cls,rtprio,pri,ni,psr,pcpu,stat,time,comm,args --sort=-pcpu
+    printf '\nKWin task scheduler counters:\n'
+    snapshot_thread_schedstats "$(pgrep -n -x kwin_wayland 2>/dev/null || true)"
+    printf '\nPipeWire task scheduler counters:\n'
+    snapshot_thread_schedstats "$(pgrep -x pipewire 2>/dev/null | head -n 1 || true)"
+    printf '\nsched_ext state:\n'
+    cat /sys/kernel/sched_ext/state 2>/dev/null || printf 'unavailable\n'
+    printf '\nCPU frequency policy:\n'
+    local policy
+    for policy in /sys/devices/system/cpu/cpufreq/policy*; do
+        [[ -d $policy ]] || continue
+        print_attribute "${policy##*/} governor" "$policy/scaling_governor"
+        print_attribute "${policy##*/} energy_preference" "$policy/energy_performance_preference"
+    done
+}
+
+# PipeWire graph state and recent xruns. Audio and display contend for the same
+# wakeups, so an audio fault window that lines up with a frame miss is a lead.
+snapshot_audio() {
+    printf 'PipeWire versions:\n'
+    pipewire --version 2>&1 || true
+    wireplumber --version 2>&1 || true
+    printf '\nPipeWire service state:\n'
+    systemctl --user show pipewire.service pipewire-pulse.service wireplumber.service \
+        -p Id -p ActiveState -p SubState -p ExecMainStartTimestamp -p LimitRTPRIO 2>&1 || true
+    printf '\nPipeWire graph settings:\n'
+    command -v pw-metadata >/dev/null && pw-metadata -n settings 2>&1 || true
+    printf '\nPipeWire graph snapshot:\n'
+    command -v pw-top >/dev/null && timeout 3 pw-top -b -n 2 2>&1 || true
+    printf '\nRecent audio faults:\n'
+    journalctl --user --since '-30 min' --no-pager -o short-precise 2>/dev/null \
+        | grep -Ei 'overrun|underrun|xrun|out of buffers|pipewire.*error|goxlr.*recover' || true
+}
+
+# USB topology, per-device power policy, and interrupt counters. Input latency
+# starts at the device, and USB autosuspend is a recurring cause of a first
+# event arriving late after an idle period.
+snapshot_usb_and_irqs() {
+    printf 'USB topology:\n'
+    command -v lsusb >/dev/null && lsusb -t 2>&1 || true
+    printf '\nUSB devices:\n'
+    command -v lsusb >/dev/null && lsusb 2>&1 || true
+    printf '\nUSB device speed and power policy:\n'
+    local device
+    for device in /sys/bus/usb/devices/*; do
+        [[ -r $device/idVendor && -r $device/idProduct ]] || continue
+        print_attribute "${device##*/} vendor" "$device/idVendor"
+        print_attribute "${device##*/} product" "$device/idProduct"
+        print_attribute "${device##*/} speed" "$device/speed"
+        print_attribute "${device##*/} power_control" "$device/power/control"
+    done
+    printf '\nInterrupt counters:\n'
+    cat /proc/interrupts
+}
+
+# Kernel input devices and the HID polling overrides. A report rate set by
+# module parameter rather than by the device is invisible in libinput output.
+snapshot_input() {
+    printf 'Kernel input devices:\n'
+    cat /proc/bus/input/devices 2>&1 || true
+    printf '\nHID poll overrides:\n'
+    local parameter
+    for parameter in /sys/module/usbhid/parameters/mousepoll /sys/module/usbhid/parameters/kbpoll; do
+        [[ -r $parameter ]] || continue
+        print_attribute "${parameter##*/}" "$parameter"
+    done
+    if command -v libinput >/dev/null; then
+        printf '\nlibinput devices:\n'
+        libinput list-devices 2>&1 || true
+    fi
+}
+
+# Connector state, available modes, and the NVIDIA driver parameters. The
+# presentation path a capture actually took depends on all three.
+snapshot_output_and_drm() {
+    printf 'DRM connector state:\n'
+    local connector parameter
+    for connector in /sys/class/drm/card*-*/status; do
+        [[ -r $connector ]] || continue
+        printf '%s status=' "${connector%/status}"
+        cat "$connector"
+        if [[ -r ${connector%/status}/modes ]]; then
+            printf '%s modes:\n' "${connector%/status}"
+            cat "${connector%/status}/modes"
+        fi
+    done
+    printf '\nNVIDIA kernel driver:\n'
+    cat /proc/driver/nvidia/version 2>/dev/null || true
+    printf '\nNVIDIA module parameters:\n'
+    for parameter in /sys/module/nvidia_drm/parameters/*; do
+        [[ -r $parameter ]] || continue
+        print_attribute "${parameter##*/}" "$parameter"
+    done
+}
+
+# Compositor and kernel display logs for the last ten minutes. Bounded on
+# purpose: a snapshot is attached to bug reports and must not carry an
+# unbounded slice of the session journal.
+snapshot_journals() {
+    printf 'KWin process journal:\n'
+    journalctl --user --since '-10 min' --no-pager _COMM=kwin_wayland 2>/dev/null || true
+    printf '\nKernel display journal:\n'
+    journalctl --since '-10 min' --no-pager -k 2>/dev/null \
+        | grep -Ei 'drm|vrr|atomic|page.?flip|nvidia' || true
+}
+
+# Collect read-only evidence from every stage of the interactive pipeline into
+# one timestamped directory. Enables no telemetry and changes no system state,
+# so it is safe to run at any time, including while reproducing a fault.
+snapshot_command() {
+    local label=${1:-manual} stamp destination
+    [[ $label =~ ^[A-Za-z0-9._-]+$ ]] || die "snapshot label may contain only letters, numbers, dot, underscore, and dash"
+    stamp=$(date +%Y%m%d-%H%M%S)
+    destination="$RESULTS_DIR/$stamp-$label"
+    if (( DRY_RUN )); then
+        run mkdir -p "$destination"
+        note "Would capture the complete input, render, output, audio, USB, and scheduler state in $destination"
+        return 0
+    fi
+    mkdir -p "$destination"
+
+    snapshot_system_identity > "$destination/system.txt"
+    [[ -f $PROFILE ]] && cp -a "$PROFILE" "$destination/environment.conf"
+    command -v kscreen-doctor >/dev/null && kscreen-doctor -o > "$destination/displays.txt" 2>&1 || true
+    command -v nvidia-smi >/dev/null && nvidia-smi -q > "$destination/nvidia-smi.txt" 2>&1 || true
+    snapshot_scheduling > "$destination/scheduling.txt" 2>&1
+    snapshot_audio > "$destination/audio.txt" 2>&1
+    snapshot_usb_and_irqs > "$destination/usb-and-irqs.txt" 2>&1
+    snapshot_input > "$destination/input.txt" 2>&1
+    snapshot_output_and_drm > "$destination/output-and-drm.txt" 2>&1
+    snapshot_journals > "$destination/kwin-journal.txt"
+
+    note "Snapshot saved: $destination"
+}
+
+trace_command() {
+    local label=${1:-manual} stamp destination kwin_pid kwin_start_epoch telemetry_file telemetry_mtime header
+    local live_telemetry=0 exact_compositor=0 exact_drm=0
+    [[ $label =~ ^[A-Za-z0-9._-]+$ ]] || die "trace label may contain only letters, numbers, dot, underscore, and dash"
+    stamp=$(date +%Y%m%d-%H%M%S)
+    destination="$RESULTS_DIR/$stamp-$label-trace"
+    if (( DRY_RUN )); then
+        note "Would measure a 10-second precision window plus a separate 10-second GPU/audio state window in $destination"
+        return 0
+    fi
+    kwin_pid=$(pgrep -n -x kwin_wayland 2>/dev/null || true)
+    [[ -n $kwin_pid && -d /proc/$kwin_pid ]] || die "KWin is not running"
+    "$ROOT/scripts/check_trace_safety.sh"
+    kwin_start_epoch=$(stat -c %Y "/proc/$kwin_pid")
+    shopt -s nullglob
+    for telemetry_file in \
+        "$HOME"/kwin\ perf\ statistics\ *.csv \
+        "$HOME"/kwin\ input\ latency.csv \
+        "$HOME"/kwin\ drm\ timing\ *.csv; do
+        telemetry_mtime=$(stat -c %Y "$telemetry_file")
+        if (( telemetry_mtime + 1 >= kwin_start_epoch )); then
+            live_telemetry=1
+            IFS= read -r header < "$telemetry_file" || true
+            if [[ $telemetry_file == *"kwin perf statistics "* \
+                && $header == *"frame sequence"* \
+                && $header == *"completion callback timestamp"* \
+                && $header == *"scene frame and postpaint duration"* ]]; then
+                exact_compositor=1
+            elif [[ $telemetry_file == *"kwin drm timing "* \
+                && $header == *"queued_ns"* \
+                && $header == *"pageflip_timestamp_ns"* ]]; then
+                exact_drm=1
+            fi
+        fi
+    done
+    shopt -u nullglob
+    (( live_telemetry )) || die "KWin telemetry predates the live compositor. Run capture-on, then fully log out/in or reboot before tracing."
+    (( exact_compositor && exact_drm )) || die "Live KWin telemetry is not the corrected revision 15 schema. Install revision 15 with capture staged, then restart before tracing."
+    note "Precision capture starts in 5 seconds. Return to the target game or test pattern now."
+    sleep 5
+    "$ROOT/scripts/capture_pipeline_window.sh" "$destination"
+    python3 "$ROOT/tools/analyze_capture.py" "$destination" > "$destination/summary.md"
+    python3 "$ROOT/tools/analyze_capture.py" --json "$destination" > "$destination/summary.json"
+    note "Capture summary: $destination/summary.md"
+}
+
+build_command() {
+    command -v makepkg >/dev/null || die "makepkg is required"
+    local dependencies=(extra-cmake-modules plasma-wayland-protocols wayland-protocols) missing
+    missing=$(pacman -T "${dependencies[@]}" 2>/dev/null || true)
+    if [[ -n $missing ]]; then
+        printf 'Missing build dependencies:\n%s\n' "$missing" >&2
+        printf 'Install them with: sudo pacman -S --needed %s\n' "${dependencies[*]}" >&2
+        exit 1
+    fi
+    run mkdir -p "$PACKAGE_DIR" "$PACKAGE_DIR/history" "$SOURCE_DIR" "$BUILD_DIR"
+    local candidate previous_revision archived
+    candidate="$PACKAGE_DIR/$(awk -F= '$1 == "CANDIDATE_PACKAGE" { print $2; exit }' "$RELEASE_FILE")"
+    if [[ -f $candidate ]]; then
+        previous_revision=$(bsdtar -xOf "$candidate" .PKGINFO \
+            | sed -n 's/^xdata = kwin-latency-revision=//p' | head -n 1)
+        previous_revision=${previous_revision:-unknown}
+        archived="$PACKAGE_DIR/history/kwin-$(release_version)-revision${previous_revision}-x86_64.pkg.tar.zst"
+        if [[ ! -e $archived ]]; then
+            run cp -a "$candidate" "$archived"
+        fi
+    fi
+    run env \
+        "PKGDEST=$PACKAGE_DIR" \
+        "SRCDEST=$SOURCE_DIR" \
+        "BUILDDIR=$BUILD_DIR" \
+        makepkg --cleanbuild --syncdeps --force
+}
+
+rollback_command() {
+    confirm "Disable experiments and restore signed repository KWin?"
+    disable_policy
+    run sudo pacman -S kwin
+    note "Repository rollback staged. Reboot or fully log out/in to start the restored compositor."
+}
+
+remove_command() {
+    confirm "Disable this experiment and reinstall repository KWin?"
+    disable_policy
+    run sudo pacman -S kwin
+    note "Repository KWin restoration staged. Reboot or fully log out/in."
+}
+
+# "game" is a passthrough, so its arguments belong to the wrapped title and must
+# not reach the global option filter below: a title launched with its own
+# --dry-run or --yes would otherwise have that argument silently eaten.
+# game_command execs, so control never returns here.
+if [[ ${1:-} == game ]]; then
+    shift
+    game_command "$@"
+fi
+
+filtered=()
+for argument in "$@"; do
+    case $argument in
+        --dry-run) DRY_RUN=1 ;;
+        --yes) ASSUME_YES=1 ;;
+        *) filtered+=("$argument") ;;
+    esac
+done
+set -- "${filtered[@]}"
+
+command=${1:-help}
+(( $# == 0 )) || shift
+case $command in
+    help|-h|--help) usage ;;
+    status) (( $# == 0 )) || die "status takes no options"; status_command ;;
+    install) install_command "$@" ;;
+    enable) enable_command "$@" ;;
+    esports) esports_command "$@" ;;
+    game) game_command "$@" ;;
+    capture-on) capture_command 1 "$@" ;;
+    capture-off) capture_command 0 "$@" ;;
+    disable) (( $# == 0 )) || die "disable takes no options"; disable_policy ;;
+    test) test_command "$@" ;;
+    snapshot) (( $# <= 1 )) || die "snapshot takes at most one label"; snapshot_command "$@" ;;
+    trace) (( $# <= 1 )) || die "trace takes at most one label"; trace_command "$@" ;;
+    color-test) (( $# == 0 )) || die "color-test takes no options"; "$ROOT/scripts/run_color_validation.sh" ;;
+    build) (( $# == 0 )) || die "build takes no options"; build_command ;;
+    rollback) (( $# == 0 )) || die "rollback takes no options"; rollback_command ;;
+    remove) (( $# == 0 )) || die "remove takes no options"; remove_command ;;
+    *) die "unknown command: $command (run '$0 help')" ;;
+esac

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="400" viewBox="0 0 960 400" role="img" aria-labelledby="title desc">
+<title id="title">Estimated scheduling opportunity relative to frame intervals</title>
+<desc id="desc">The estimated 1340 microsecond scheduling opportunity combines a theoretical 500 microsecond timer quantization mean and an 840 microsecond offline adaptive replay reduction. It is shown against 2083 and 4167 microsecond frame intervals.</desc>
+<style>
+    .bg { fill: #ffffff; }
+    .text { fill: #1f2328; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .muted { fill: #59636e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .grid { stroke: #d0d7de; stroke-width: 1; }
+    .axis { stroke: #8c959f; stroke-width: 1.5; }
+    .baseline { fill: #8c959f; }
+    .adaptive { fill: #0969da; }
+    .adaptive-line { fill: none; stroke: #0969da; stroke-width: 3; }
+    .stock-line { fill: none; stroke: #8c959f; stroke-width: 3; stroke-dasharray: 8 6; }
+    .timer { fill: #8250df; }
+    .event { stroke: #cf222e; stroke-width: 2; }
+    .frame { fill: #8c959f; opacity: 0.45; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .text { fill: #f0f6fc; }
+      .muted { fill: #9da7b3; }
+      .grid { stroke: #30363d; }
+      .axis { stroke: #6e7681; }
+      .baseline { fill: #6e7681; }
+      .adaptive { fill: #58a6ff; }
+      .adaptive-line { stroke: #58a6ff; }
+      .stock-line { stroke: #9da7b3; }
+      .timer { fill: #a371f7; }
+      .event { stroke: #ff7b72; }
+      .frame { fill: #6e7681; opacity: 0.55; }
+    }
+</style>
+<rect class="bg" width="960" height="400"/>
+<text class="text" x="40" y="42" font-size="24" text-anchor="start" font-weight="500">Scheduling opportunity and frame intervals</text>
+<text class="muted" x="40" y="70" font-size="15" text-anchor="start" font-weight="400">Estimate versus 480 FPS render and 240 Hz display cadence</text>
+<text class="muted" x="40" y="94" font-size="13" text-anchor="start" font-weight="400">Opportunity is not an input-to-photon benchmark</text>
+<line class="grid" x1="230.0" y1="110" x2="230.0" y2="320"/>
+<text class="muted" x="230.0" y="344" font-size="12" text-anchor="middle" font-weight="400">0</text>
+<line class="grid" x1="388.4" y1="110" x2="388.4" y2="320"/>
+<text class="muted" x="388.38732901367894" y="344" font-size="12" text-anchor="middle" font-weight="400">1000</text>
+<line class="grid" x1="546.8" y1="110" x2="546.8" y2="320"/>
+<text class="muted" x="546.7746580273579" y="344" font-size="12" text-anchor="middle" font-weight="400">2000</text>
+<line class="grid" x1="705.2" y1="110" x2="705.2" y2="320"/>
+<text class="muted" x="705.1619870410367" y="344" font-size="12" text-anchor="middle" font-weight="400">3000</text>
+<line class="grid" x1="863.5" y1="110" x2="863.5" y2="320"/>
+<text class="muted" x="863.5493160547156" y="344" font-size="12" text-anchor="middle" font-weight="400">4000</text>
+<text class="text" x="212" y="143" font-size="14" text-anchor="end" font-weight="400">Estimated scheduling opportunity</text>
+<rect class="timer" x="230" y="120" width="79.2" height="34" rx="4"/>
+<rect class="adaptive" x="309.2" y="120" width="133.0" height="34" rx="4"/>
+<text class="text" x="269.59683225341973" y="142" font-size="12" text-anchor="middle" font-weight="500">500</text>
+<text class="text" x="375.7163426925846" y="142" font-size="12" text-anchor="middle" font-weight="500">840</text>
+<text class="text" x="452.2390208783297" y="142" font-size="13" text-anchor="start" font-weight="500">1.34 ms</text>
+<text class="text" x="212" y="207" font-size="14" text-anchor="end" font-weight="400">480 FPS render interval</text>
+<rect class="frame" x="230" y="184" width="329.9" height="34" rx="4"/>
+<text class="text" x="569.9208063354931" y="206" font-size="13" text-anchor="start" font-weight="500">2.08 ms</text>
+<text class="text" x="212" y="271" font-size="14" text-anchor="end" font-weight="400">240 Hz display interval</text>
+<rect class="frame" x="230" y="248" width="660.0" height="34" rx="4"/>
+<text class="text" x="900.0" y="270" font-size="13" text-anchor="start" font-weight="500">4.17 ms</text>
+<text class="muted" x="560.0" y="370" font-size="13" text-anchor="middle" font-weight="400">Time (microseconds)</text>
+<text class="muted" x="238" y="102" font-size="11" text-anchor="start" font-weight="400">timer mean</text>
+<text class="muted" x="317.19366450683947" y="102" font-size="11" text-anchor="start" font-weight="400">adaptive replay</text>
+</svg>

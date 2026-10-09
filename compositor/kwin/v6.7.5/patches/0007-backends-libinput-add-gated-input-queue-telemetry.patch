@@ -1,0 +1,384 @@
+From: Linux Interactive Latency project
+Subject: [PATCH] backends/libinput: add gated input queue telemetry
+
+Collect bounded aggregate timing data around KWin's libinput producer and
+consumer queue without changing input ordering, coalescing, or dispatch.
+Keep telemetry behind an exact-kernel environment gate and write at most one
+CSV row per configured interval after releasing the queue mutex.
+
+--- a/src/backends/libinput/events.h
++++ b/src/backends/libinput/events.h
+@@ -27,6 +27,8 @@
+     libinput_event_type type() const;
+     Device *device() const;
+     libinput_device *nativeDevice() const;
++    void setInputTelemetryQueuedTimestamp(std::chrono::nanoseconds timestamp);
++    std::chrono::nanoseconds inputTelemetryQueuedTimestamp() const;
+
+     operator libinput_event *()
+     {
+@@ -46,6 +48,7 @@
+     libinput_event *m_event;
+     libinput_event_type m_type;
+     mutable Device *m_device;
++    std::chrono::nanoseconds m_inputTelemetryQueuedTimestamp = std::chrono::nanoseconds::zero();
+ };
+
+ class KeyEvent : public Event
+@@ -479,5 +482,15 @@
+     return m_type;
+ }
+
++inline void Event::setInputTelemetryQueuedTimestamp(std::chrono::nanoseconds timestamp)
++{
++    m_inputTelemetryQueuedTimestamp = timestamp;
++}
++
++inline std::chrono::nanoseconds Event::inputTelemetryQueuedTimestamp() const
++{
++    return m_inputTelemetryQueuedTimestamp;
++}
++
+ }
+ }
+--- a/src/backends/libinput/connection.h
++++ b/src/backends/libinput/connection.h
+@@ -18,7 +18,12 @@
+ #include <QRecursiveMutex>
+ #include <QSize>
+ #include <QStringList>
++#include <array>
++#include <chrono>
++#include <cstdint>
+ #include <deque>
++#include <fstream>
++#include <optional>
+
+ class QSocketNotifier;
+ class QThread;
+@@ -76,8 +81,41 @@
+     void slotKGlobalSettingsNotifyChange(int type, int arg);
+
+ private:
++    enum class InputTelemetryEventClass : std::size_t {
++        PointerMotion,
++        PointerButton,
++        KeyboardKey,
++        Other,
++        Count,
++    };
++    static constexpr std::size_t s_inputTelemetryAgeBucketCount = 16;
++
++    struct InputTelemetryDistribution {
++        uint64_t count = 0;
++        uint64_t sumNs = 0;
++        uint64_t maxNs = 0;
++        std::array<uint64_t, s_inputTelemetryAgeBucketCount> buckets{};
++    };
++
++    struct InputTelemetryWindow {
++        uint64_t producerBatches = 0;
++        uint64_t eventsQueued = 0;
++        uint64_t consumerBatches = 0;
++        uint64_t eventsProcessed = 0;
++        uint64_t motionsCoalesced = 0;
++        uint64_t maxQueueDepth = 0;
++        InputTelemetryDistribution producerWait;
++        InputTelemetryDistribution producerHold;
++        InputTelemetryDistribution consumerWait;
++        InputTelemetryDistribution consumerHold;
++        std::array<InputTelemetryDistribution, static_cast<std::size_t>(InputTelemetryEventClass::Count)> eventAge{};
++    };
++
+     Connection(std::unique_ptr<Context> &&input);
+     void handleEvent();
++    void recordInputTelemetryDuration(InputTelemetryDistribution &distribution, std::chrono::nanoseconds duration);
++    void recordInputTelemetryEvent(const Event *event, std::chrono::nanoseconds drainStart);
++    void writeInputTelemetry(const InputTelemetryWindow &window, std::chrono::nanoseconds intervalEnd, std::chrono::nanoseconds intervalDuration);
+     void applyDeviceConfig(Device *device);
+     void applyScreenToDevice(Device *device);
+     void doSetup();
+@@ -92,6 +130,11 @@
+     std::unique_ptr<ConnectionAdaptor> m_connectionAdaptor;
+     std::unique_ptr<Context> m_input;
+     std::unique_ptr<Udev> m_udev;
++    bool m_inputTelemetryEnabled = false;
++    std::chrono::nanoseconds m_inputTelemetryInterval = std::chrono::seconds(1);
++    std::chrono::nanoseconds m_inputTelemetryWindowStart = std::chrono::nanoseconds::zero();
++    InputTelemetryWindow m_inputTelemetryWindow;
++    std::optional<std::fstream> m_inputTelemetryOutput;
+ };
+
+ }
+--- a/src/backends/libinput/connection.cpp
++++ b/src/backends/libinput/connection.cpp
+@@ -31,15 +31,94 @@
+ #include <QMutexLocker>
+ #include <QSocketNotifier>
+
++#include <algorithm>
+ #include <cmath>
+ #include <libinput.h>
+ #include <ranges>
++#include <sys/utsname.h>
+
+ namespace KWin
+ {
+ namespace LibInput
+ {
+
++static bool inputTelemetryEnabled()
++{
++    if (qEnvironmentVariableIntValue("KWIN_INPUT_LATENCY_TELEMETRY") == 0) {
++        return false;
++    }
++
++    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    if (expectedRelease.isEmpty()) {
++        return false;
++    }
++
++    struct utsname systemInfo;
++    return uname(&systemInfo) == 0 && expectedRelease == systemInfo.release;
++}
++
++static std::chrono::nanoseconds inputTelemetryInterval()
++{
++    bool ok = false;
++    const int configuredIntervalMs = qEnvironmentVariableIntValue("KWIN_INPUT_LATENCY_TELEMETRY_INTERVAL_MS", &ok);
++    return std::chrono::milliseconds(std::clamp(ok ? configuredIntervalMs : 1000, 250, 10'000));
++}
++
++static constexpr std::array<std::chrono::nanoseconds, 15> s_inputTelemetryAgeThresholds = {
++    std::chrono::microseconds(1),
++    std::chrono::microseconds(2),
++    std::chrono::microseconds(4),
++    std::chrono::microseconds(8),
++    std::chrono::microseconds(16),
++    std::chrono::microseconds(32),
++    std::chrono::microseconds(64),
++    std::chrono::microseconds(125),
++    std::chrono::microseconds(250),
++    std::chrono::microseconds(500),
++    std::chrono::microseconds(1000),
++    std::chrono::microseconds(2000),
++    std::chrono::microseconds(4000),
++    std::chrono::microseconds(8000),
++    std::chrono::microseconds(16000),
++};
++
++static constexpr std::array<const char *, 4> s_inputTelemetryEventClassNames = {
++    "motion",
++    "button",
++    "key",
++    "other",
++};
++
++static constexpr std::array<const char *, 16> s_inputTelemetryAgeBucketNames = {
++    "le_1us",
++    "le_2us",
++    "le_4us",
++    "le_8us",
++    "le_16us",
++    "le_32us",
++    "le_64us",
++    "le_125us",
++    "le_250us",
++    "le_500us",
++    "le_1000us",
++    "le_2000us",
++    "le_4000us",
++    "le_8000us",
++    "le_16000us",
++    "gt_16000us",
++};
++
++static uint64_t nanosecondsCount(std::chrono::nanoseconds duration)
++{
++    return static_cast<uint64_t>(std::max(duration, std::chrono::nanoseconds::zero()).count());
++}
++
++static std::size_t inputTelemetryAgeBucket(std::chrono::nanoseconds age)
++{
++    const auto it = std::ranges::lower_bound(s_inputTelemetryAgeThresholds, age);
++    return static_cast<std::size_t>(std::distance(s_inputTelemetryAgeThresholds.begin(), it));
++}
++
+ class ConnectionAdaptor : public QObject
+ {
+     Q_OBJECT
+@@ -118,6 +197,8 @@
+     : m_notifier(nullptr)
+     , m_connectionAdaptor(std::make_unique<ConnectionAdaptor>(this))
+     , m_input(std::move(input))
++    , m_inputTelemetryEnabled(inputTelemetryEnabled())
++    , m_inputTelemetryInterval(inputTelemetryInterval())
+ {
+     Q_ASSERT(m_input);
+     // need to connect to KGlobalSettings as the mouse KCM does not emit a dedicated signal
+@@ -170,19 +251,37 @@
+
+ void Connection::handleEvent()
+ {
++    const auto waitStart = m_inputTelemetryEnabled ? std::chrono::steady_clock::now().time_since_epoch() : std::chrono::nanoseconds::zero();
+     QMutexLocker locker(&m_mutex);
++    const auto lockAcquired = m_inputTelemetryEnabled ? std::chrono::steady_clock::now().time_since_epoch() : std::chrono::nanoseconds::zero();
+     const bool wasEmpty = m_eventQueue.empty();
++    uint64_t eventsQueued = 0;
+     do {
+         m_input->dispatch();
+         std::unique_ptr<Event> event = m_input->event();
+         if (!event) {
+             break;
+         }
++        if (m_inputTelemetryEnabled) {
++            event->setInputTelemetryQueuedTimestamp(std::chrono::steady_clock::now().time_since_epoch());
++            eventsQueued++;
++        }
+         m_eventQueue.push_back(std::move(event));
+     } while (true);
+     if (wasEmpty && !m_eventQueue.empty()) {
+         Q_EMIT eventsRead();
+     }
++    if (m_inputTelemetryEnabled) {
++        const auto lockReleased = std::chrono::steady_clock::now().time_since_epoch();
++        if (m_inputTelemetryWindowStart == std::chrono::nanoseconds::zero()) {
++            m_inputTelemetryWindowStart = lockAcquired;
++        }
++        m_inputTelemetryWindow.producerBatches++;
++        m_inputTelemetryWindow.eventsQueued += eventsQueued;
++        m_inputTelemetryWindow.maxQueueDepth = std::max<uint64_t>(m_inputTelemetryWindow.maxQueueDepth, m_eventQueue.size());
++        recordInputTelemetryDuration(m_inputTelemetryWindow.producerWait, lockAcquired - waitStart);
++        recordInputTelemetryDuration(m_inputTelemetryWindow.producerHold, lockReleased - lockAcquired);
++    }
+ }
+
+ #ifndef KWIN_BUILD_TESTING
+@@ -260,7 +359,17 @@
+
+ void Connection::processEvents()
+ {
++    const auto waitStart = m_inputTelemetryEnabled ? std::chrono::steady_clock::now().time_since_epoch() : std::chrono::nanoseconds::zero();
+     QMutexLocker locker(&m_mutex);
++    const auto lockAcquired = m_inputTelemetryEnabled ? std::chrono::steady_clock::now().time_since_epoch() : std::chrono::nanoseconds::zero();
++    if (m_inputTelemetryEnabled) {
++        m_inputTelemetryWindow.consumerBatches++;
++        m_inputTelemetryWindow.eventsProcessed += m_eventQueue.size();
++        m_inputTelemetryWindow.maxQueueDepth = std::max<uint64_t>(m_inputTelemetryWindow.maxQueueDepth, m_eventQueue.size());
++        for (const auto &event : m_eventQueue) {
++            recordInputTelemetryEvent(event.get(), lockAcquired);
++        }
++    }
+     while (m_eventQueue.size() != 0) {
+         std::unique_ptr<Event> event = std::move(m_eventQueue.front());
+         m_eventQueue.pop_front();
+@@ -372,6 +481,9 @@
+             auto it = m_eventQueue.begin();
+             while (it != m_eventQueue.end()) {
+                 if ((*it)->type() == LIBINPUT_EVENT_POINTER_MOTION) {
++                    if (m_inputTelemetryEnabled) {
++                        m_inputTelemetryWindow.motionsCoalesced++;
++                    }
+                     std::unique_ptr<PointerEvent> p{static_cast<PointerEvent *>(it->release())};
+                     delta += p->delta();
+                     deltaNonAccel += p->deltaUnaccelerated();
+@@ -610,6 +722,99 @@
+             break;
+         }
+     }
++
++    std::optional<InputTelemetryWindow> completedWindow;
++    std::chrono::nanoseconds completedWindowDuration = std::chrono::nanoseconds::zero();
++    const auto lockReleased = m_inputTelemetryEnabled ? std::chrono::steady_clock::now().time_since_epoch() : std::chrono::nanoseconds::zero();
++    if (m_inputTelemetryEnabled) {
++        recordInputTelemetryDuration(m_inputTelemetryWindow.consumerWait, lockAcquired - waitStart);
++        recordInputTelemetryDuration(m_inputTelemetryWindow.consumerHold, lockReleased - lockAcquired);
++
++        completedWindowDuration = lockReleased - m_inputTelemetryWindowStart;
++        if (completedWindowDuration >= m_inputTelemetryInterval) {
++            completedWindow = m_inputTelemetryWindow;
++            m_inputTelemetryWindow = InputTelemetryWindow{};
++            m_inputTelemetryWindowStart = lockReleased;
++        }
++    }
++    locker.unlock();
++    if (completedWindow) {
++        writeInputTelemetry(*completedWindow, lockReleased, completedWindowDuration);
++    }
++}
++
++void Connection::recordInputTelemetryDuration(InputTelemetryDistribution &distribution, std::chrono::nanoseconds duration)
++{
++    const auto boundedDuration = std::max(duration, std::chrono::nanoseconds::zero());
++    const uint64_t durationNs = nanosecondsCount(boundedDuration);
++    distribution.count++;
++    distribution.sumNs += durationNs;
++    distribution.maxNs = std::max(distribution.maxNs, durationNs);
++    distribution.buckets[inputTelemetryAgeBucket(boundedDuration)]++;
++}
++
++void Connection::recordInputTelemetryEvent(const Event *event, std::chrono::nanoseconds drainStart)
++{
++    InputTelemetryEventClass eventClass = InputTelemetryEventClass::Other;
++    switch (event->type()) {
++    case LIBINPUT_EVENT_POINTER_MOTION:
++    case LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE:
++        eventClass = InputTelemetryEventClass::PointerMotion;
++        break;
++    case LIBINPUT_EVENT_POINTER_BUTTON:
++        eventClass = InputTelemetryEventClass::PointerButton;
++        break;
++    case LIBINPUT_EVENT_KEYBOARD_KEY:
++        eventClass = InputTelemetryEventClass::KeyboardKey;
++        break;
++    default:
++        break;
++    }
++
++    const auto queuedTimestamp = event->inputTelemetryQueuedTimestamp();
++    const auto age = queuedTimestamp == std::chrono::nanoseconds::zero()
++        ? std::chrono::nanoseconds::zero()
++        : std::max(drainStart - queuedTimestamp, std::chrono::nanoseconds::zero());
++    recordInputTelemetryDuration(m_inputTelemetryWindow.eventAge[static_cast<std::size_t>(eventClass)], age);
++}
++
++void Connection::writeInputTelemetry(const InputTelemetryWindow &window, std::chrono::nanoseconds intervalEnd, std::chrono::nanoseconds intervalDuration)
++{
++    if (!m_inputTelemetryOutput) {
++        m_inputTelemetryOutput.emplace("kwin input latency.csv", std::ios::out);
++        *m_inputTelemetryOutput << "schema_version,interval_end_ns,interval_duration_ns,producer_batches,events_queued,consumer_batches,events_processed,motions_coalesced,max_queue_depth";
++        for (const char *distribution : {"producer_wait", "producer_hold", "consumer_wait", "consumer_hold"}) {
++            *m_inputTelemetryOutput << "," << distribution << "_count," << distribution << "_sum_ns," << distribution << "_max_ns";
++            for (const char *bucket : s_inputTelemetryAgeBucketNames) {
++                *m_inputTelemetryOutput << "," << distribution << "_" << bucket;
++            }
++        }
++        for (const char *eventClass : s_inputTelemetryEventClassNames) {
++            *m_inputTelemetryOutput << "," << eventClass << "_count," << eventClass << "_age_sum_ns," << eventClass << "_age_max_ns";
++            for (const char *bucket : s_inputTelemetryAgeBucketNames) {
++                *m_inputTelemetryOutput << "," << eventClass << "_age_" << bucket;
++            }
++        }
++        *m_inputTelemetryOutput << "\n";
++    }
++
++    *m_inputTelemetryOutput << 1 << "," << intervalEnd.count() << "," << intervalDuration.count()
++                            << "," << window.producerBatches << "," << window.eventsQueued
++                            << "," << window.consumerBatches << "," << window.eventsProcessed
++                            << "," << window.motionsCoalesced << "," << window.maxQueueDepth;
++    for (const auto *distribution : {&window.producerWait, &window.producerHold, &window.consumerWait, &window.consumerHold}) {
++        *m_inputTelemetryOutput << "," << distribution->count << "," << distribution->sumNs << "," << distribution->maxNs;
++        for (const uint64_t bucketCount : distribution->buckets) {
++            *m_inputTelemetryOutput << "," << bucketCount;
++        }
++    }
++    for (const auto &eventAge : window.eventAge) {
++        *m_inputTelemetryOutput << "," << eventAge.count << "," << eventAge.sumNs << "," << eventAge.maxNs;
++        for (const uint64_t bucketCount : eventAge.buckets) {
++            *m_inputTelemetryOutput << "," << bucketCount;
++        }
++    }
++    *m_inputTelemetryOutput << "\n";
+ }
+
+ void Connection::updateScreens()

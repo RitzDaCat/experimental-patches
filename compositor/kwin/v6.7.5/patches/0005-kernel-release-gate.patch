@@ -1,0 +1,191 @@
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Wed, 15 Jul 2026 16:05:00 -0500
+Subject: [PATCH] core/renderloop: gate timing experiment by exact kernel release
+
+Only construct and use the timerfd path, instrumentation, and adaptive margin
+when the running kernel exactly matches the configured experiment release. On
+all other kernels, retain KWin 6.7.3's fixed 1 ms allowance and QBasicTimer path.
+
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -13,6 +13,8 @@
+ #include "window.h"
+ #include "workspace.h"
+ 
++#include <sys/utsname.h>
++
+ using namespace std::chrono_literals;
+ 
+ namespace KWin
+@@ -23,11 +25,23 @@
+     return loop->d.get();
+ }
+ 
+-static const bool s_printDebugInfo = qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0;
++static bool experimentKernelAllowed()
++{
++    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    if (expectedRelease.isEmpty()) {
++        return false;
++    }
++
++    struct utsname systemInfo;
++    return uname(&systemInfo) == 0 && expectedRelease == systemInfo.release;
++}
++
++static const bool s_experimentKernelAllowed = experimentKernelAllowed();
++static const bool s_printDebugInfo = s_experimentKernelAllowed && qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0;
+ static const std::chrono::microseconds s_schedulerMargin{
+-    std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000)};
++    s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000) : 1000};
+ // 0 = fixed, 1 = shadow (learn but don't apply), 2 = adaptive.
+-static const int s_schedulerMarginMode = std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2);
++static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2) : 0;
+ static constexpr std::chrono::nanoseconds s_adaptiveMarginFloor = 100us;
+ static constexpr std::chrono::nanoseconds s_adaptiveMarginGuard = 50us;
+ static constexpr std::chrono::nanoseconds s_adaptiveMarginHysteresis = 100us;
+@@ -41,9 +55,35 @@
+ {
+     adaptiveSchedulerMargin = std::clamp<std::chrono::nanoseconds>(s_schedulerMargin, s_adaptiveMarginFloor, s_adaptiveMarginCeiling);
+     adaptiveWakeWindowPeak = s_adaptiveMarginFloor;
+-    QObject::connect(&compositeTimer, &PreciseTimer::timeout, q, [this] {
+-        dispatch();
+-    });
++    if (s_experimentKernelAllowed) {
++        compositeTimer = std::make_unique<PreciseTimer>();
++        QObject::connect(compositeTimer.get(), &PreciseTimer::timeout, q, [this] {
++            dispatch();
++        });
++    }
++}
++
++bool RenderLoopPrivate::compositeTimerActive() const
++{
++    return s_experimentKernelAllowed ? compositeTimer->isActive() : legacyCompositeTimer.isActive();
++}
++
++void RenderLoopPrivate::startCompositeTimer(std::chrono::nanoseconds deadline, std::chrono::nanoseconds currentTime)
++{
++    if (s_experimentKernelAllowed) {
++        compositeTimer->start(deadline);
++    } else {
++        legacyCompositeTimer.start(std::max(0ms, std::chrono::duration_cast<std::chrono::milliseconds>(deadline - currentTime)), Qt::PreciseTimer, q);
++    }
++}
++
++void RenderLoopPrivate::stopCompositeTimer()
++{
++    if (s_experimentKernelAllowed) {
++        compositeTimer->stop();
++    } else {
++        legacyCompositeTimer.stop();
++    }
+ }
+ 
+ std::chrono::nanoseconds RenderLoopPrivate::compositorSchedulingMargin() const
+@@ -85,7 +125,7 @@
+ 
+ void RenderLoopPrivate::scheduleNextRepaint()
+ {
+-    if (kwinApp()->isTerminating() || compositeTimer.isActive() || preparingNewFrame) {
++    if (kwinApp()->isTerminating() || compositeTimerActive() || preparingNewFrame) {
+         return;
+     }
+     scheduleRepaint(nextPresentationTimestamp);
+@@ -134,7 +174,7 @@
+             }
+         }
+ 
+-        if (compositeTimer.isActive()) {
++        if (compositeTimerActive()) {
+             // we already scheduled this frame, but we got a new timestamp
+             // which might require starting to composite earlier than we planned
+             // It's important here that we do not change the targeted vblank interval,
+@@ -161,7 +201,7 @@
+     const std::chrono::nanoseconds nextRenderTimestamp = nextPresentationTimestamp - expectedCompositingTime;
+     desiredWakeTimestamp = nextRenderTimestamp;
+     armedWakeTimestamp = std::max(nextRenderTimestamp, currentTime);
+-    compositeTimer.start(nextRenderTimestamp);
++    startCompositeTimer(nextRenderTimestamp, currentTime);
+ }
+ 
+ void RenderLoopPrivate::delayScheduleRepaint()
+@@ -183,7 +223,7 @@
+ {
+     if (output && s_printDebugInfo && !m_debugOutput) {
+         m_debugOutput = std::fstream(qPrintable("kwin perf statistics " + output->name() + ".csv"), std::ios::out);
+-        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid\n";
++        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid,experiment kernel allowed\n";
+     }
+     if (m_debugOutput) {
+         auto times = renderTime.value_or(RenderTimeSpan{});
+@@ -194,7 +234,7 @@
+         *m_debugOutput << frame->targetPageflipTime().time_since_epoch().count() << "," << timestamp.count() << "," << times.start.time_since_epoch().count() << "," << times.end.time_since_epoch().count()
+                        << "," << safetyMargin.count() << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0) << "," << frame->predictedRenderTime().count()
+                        << "," << desiredWakeTimestamp.count() << "," << armedWakeTimestamp.count() << "," << actualWakeTimestamp.count() << "," << wakeLateness.count() << "," << scheduleDeficit.count() << "," << appliedSchedulerMargin.count()
+-                       << "," << adaptiveSchedulerMargin.count() << "," << s_schedulerMarginMode << "," << (wakeSampleValid ? 1 : 0) << "\n";
++                       << "," << adaptiveSchedulerMargin.count() << "," << s_schedulerMarginMode << "," << (wakeSampleValid ? 1 : 0) << "," << (s_experimentKernelAllowed ? 1 : 0) << "\n";
+     }
+ 
+     Q_ASSERT(pendingFrameCount > 0);
+@@ -205,7 +245,7 @@
+     if (renderTime) {
+         renderJournal.add(renderTime->end - renderTime->start, timestamp);
+     }
+-    if (compositeTimer.isActive()) {
++    if (compositeTimerActive()) {
+         // reschedule to match the new timestamp and render time
+         scheduleRepaint(lastPresentationTimestamp);
+     }
+@@ -231,7 +271,10 @@
+ 
+ void RenderLoop::timerEvent(QTimerEvent *event)
+ {
+-    if (event->timerId() == d->delayedVrrTimer.timerId()) {
++    if (event->timerId() == d->legacyCompositeTimer.timerId()) {
++        d->legacyCompositeTimer.stop();
++        d->dispatch();
++    } else if (event->timerId() == d->delayedVrrTimer.timerId()) {
+         d->delayedVrrTimer.stop();
+         scheduleRepaint(nullptr, nullptr);
+     } else {
+@@ -260,7 +303,7 @@
+     d->inhibitCount++;
+ 
+     if (d->inhibitCount == 1) {
+-        d->compositeTimer.stop();
++        d->stopCompositeTimer();
+     }
+ }
+ 
+@@ -298,7 +341,7 @@
+     d->refreshRate = refreshRate;
+     Q_EMIT refreshRateChanged();
+ 
+-    if (d->compositeTimer.isActive()) {
++    if (d->compositeTimerActive()) {
+         d->scheduleRepaint(d->lastPresentationTimestamp);
+     }
+ }
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -30,6 +30,9 @@
+ 
+     void dispatch();
+ 
++    bool compositeTimerActive() const;
++    void startCompositeTimer(std::chrono::nanoseconds deadline, std::chrono::nanoseconds currentTime);
++    void stopCompositeTimer();
+     std::chrono::nanoseconds compositorSchedulingMargin() const;
+     void updateAdaptiveCompositorSchedulingMargin();
+ 
+@@ -56,7 +59,8 @@
+     bool wakeSampleValid = false;
+     bool wasTripleBuffering = false;
+     int doubleBufferingCounter = 0;
+-    PreciseTimer compositeTimer;
++    std::unique_ptr<PreciseTimer> compositeTimer;
++    QBasicTimer legacyCompositeTimer;
+     RenderJournal renderJournal;
+     int refreshRate = 60000;
+     int pendingFrameCount = 0;

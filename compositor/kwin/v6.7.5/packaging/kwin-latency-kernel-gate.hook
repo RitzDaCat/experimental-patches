@@ -1,0 +1,14 @@
+# Warn when a kernel package change removes the module tree of the release the
+# latency experiment is gated on. Target linux* overmatches (linux-firmware,
+# linux-api-headers); the helper script stays silent unless the gate kernel's
+# modules are actually gone, so the noise cost is one Description line.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = linux*
+
+[Action]
+Description = kwin-latency: checking the experiment kernel gate
+When = PostTransaction
+Exec = /usr/lib/kwin-latency/check-gate.sh kernel

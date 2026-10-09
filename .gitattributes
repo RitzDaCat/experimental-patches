@@ -1,0 +1,4 @@
+# Preserve patch context and exact upstream reference bytes.
+*.patch -whitespace
+compositor/kwin/v6.7.5/reference/patched-overlay/** -whitespace
+compositor/kwin/v6.7.5/LICENSES/** -whitespace

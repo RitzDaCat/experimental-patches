@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title desc">
+<title id="title">Synthetic adaptive controller response</title>
+<desc id="desc">At 240 hertz, the refresh-relative reserve removes one quarter of excess after each clean 256-sample window, ignores one isolated 500 microsecond spike, and rises just above 400 microseconds after a repeated tail.</desc>
+<style>
+    .bg { fill: #ffffff; }
+    .text { fill: #1f2328; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .muted { fill: #59636e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .grid { stroke: #d0d7de; stroke-width: 1; }
+    .axis { stroke: #8c959f; stroke-width: 1.5; }
+    .baseline { fill: #8c959f; }
+    .adaptive { fill: #0969da; }
+    .adaptive-line { fill: none; stroke: #0969da; stroke-width: 3; }
+    .stock-line { fill: none; stroke: #8c959f; stroke-width: 3; stroke-dasharray: 8 6; }
+    .timer { fill: #8250df; }
+    .event { stroke: #cf222e; stroke-width: 2; }
+    .frame { fill: #8c959f; opacity: 0.45; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .text { fill: #f0f6fc; }
+      .muted { fill: #9da7b3; }
+      .grid { stroke: #30363d; }
+      .axis { stroke: #6e7681; }
+      .baseline { fill: #6e7681; }
+      .adaptive { fill: #58a6ff; }
+      .adaptive-line { stroke: #58a6ff; }
+      .stock-line { stroke: #9da7b3; }
+      .timer { fill: #a371f7; }
+      .event { stroke: #ff7b72; }
+      .frame { fill: #6e7681; opacity: 0.55; }
+    }
+</style>
+<rect class="bg" width="960" height="430"/>
+<text class="text" x="40" y="42" font-size="24" text-anchor="start" font-weight="500">Adaptive controller response</text>
+<text class="muted" x="40" y="70" font-size="15" text-anchor="start" font-weight="400">Deterministic reference-model scenario</text>
+<line class="grid" x1="92" y1="345.0" x2="905" y2="345.0"/>
+<text class="muted" x="78" y="349.0" font-size="12" text-anchor="end" font-weight="400">0</text>
+<line class="grid" x1="92" y1="290.5" x2="905" y2="290.5"/>
+<text class="muted" x="78" y="294.45454545454544" font-size="12" text-anchor="end" font-weight="400">250</text>
+<line class="grid" x1="92" y1="235.9" x2="905" y2="235.9"/>
+<text class="muted" x="78" y="239.9090909090909" font-size="12" text-anchor="end" font-weight="400">500</text>
+<line class="grid" x1="92" y1="181.4" x2="905" y2="181.4"/>
+<text class="muted" x="78" y="185.36363636363637" font-size="12" text-anchor="end" font-weight="400">750</text>
+<line class="grid" x1="92" y1="126.8" x2="905" y2="126.8"/>
+<text class="muted" x="78" y="130.8181818181818" font-size="12" text-anchor="end" font-weight="400">1000</text>
+<line class="grid" x1="92.0" y1="105" x2="92.0" y2="345"/>
+<text class="muted" x="92.0" y="369" font-size="12" text-anchor="middle" font-weight="400">0</text>
+<line class="grid" x1="212.4" y1="105" x2="212.4" y2="345"/>
+<text class="muted" x="212.40960370263235" y="369" font-size="12" text-anchor="middle" font-weight="400">1024</text>
+<line class="grid" x1="332.8" y1="105" x2="332.8" y2="345"/>
+<text class="muted" x="332.8192074052647" y="369" font-size="12" text-anchor="middle" font-weight="400">2048</text>
+<line class="grid" x1="453.2" y1="105" x2="453.2" y2="345"/>
+<text class="muted" x="453.228811107897" y="369" font-size="12" text-anchor="middle" font-weight="400">3072</text>
+<line class="grid" x1="573.6" y1="105" x2="573.6" y2="345"/>
+<text class="muted" x="573.6384148105294" y="369" font-size="12" text-anchor="middle" font-weight="400">4096</text>
+<line class="grid" x1="694.0" y1="105" x2="694.0" y2="345"/>
+<text class="muted" x="694.0480185131617" y="369" font-size="12" text-anchor="middle" font-weight="400">5120</text>
+<line class="grid" x1="814.5" y1="105" x2="814.5" y2="345"/>
+<text class="muted" x="814.457622215794" y="369" font-size="12" text-anchor="middle" font-weight="400">6144</text>
+<path class="adaptive-line" d="M 92.0 117.7 L 122.1 117.7 L 122.1 173.7 L 152.2 173.7 L 152.2 215.6 L 182.3 215.6 L 182.3 247.1 L 212.4 247.1 L 212.4 270.7 L 242.5 270.7 L 242.5 288.4 L 272.6 288.4 L 272.6 301.6 L 302.7 301.6 L 302.7 311.6 L 332.8 311.6 L 332.8 319.1 L 362.9 319.1 L 362.9 324.7 L 393.0 324.7 L 393.0 328.8 L 423.1 328.8 L 423.1 332.0 L 453.2 332.0 L 453.2 334.4 L 483.3 334.4 L 483.3 336.1 L 513.4 336.1 L 513.4 337.5 L 543.5 337.5 L 543.5 338.5 L 573.6 338.5 L 573.6 339.2 L 603.7 339.2 L 603.7 339.8 L 633.8 339.8 L 633.8 340.2 L 663.9 340.2 L 663.9 340.7 L 664.2 340.7 L 664.2 257.3 L 724.2 257.3 L 724.2 278.3 L 754.3 278.3 L 754.3 294.1 L 784.4 294.1 L 784.4 305.9 L 814.5 305.9 L 814.5 314.8 L 844.6 314.8 L 844.6 321.5 L 874.7 321.5 L 874.7 326.5 L 904.8 326.5 L 904.8 330.2 L 905.0 330.2"/>
+<line class="event" x1="634.0" y1="105" x2="634.0" y2="345"/>
+<text class="text" x="641.9608041654614" y="135" font-size="13" text-anchor="start" font-weight="500">One 500 us spike ignored</text>
+<line class="event" x1="664.2" y1="105" x2="664.2" y2="345"/>
+<text class="text" x="672.1807925947353" y="175" font-size="13" text-anchor="start" font-weight="500">Second 400 us tail raises reserve</text>
+<text class="muted" x="25" y="225.0" font-size="13" text-anchor="middle" transform="rotate(-90 25 225.0)">Reserve (us)</text>
+<text class="muted" x="498.5" y="401" font-size="13" text-anchor="middle" font-weight="400">Valid timer wake samples</text>
+<text class="muted" x="100" y="127" font-size="12" text-anchor="start" font-weight="400">Refresh-relative proportional descent per clean window</text>
+</svg>

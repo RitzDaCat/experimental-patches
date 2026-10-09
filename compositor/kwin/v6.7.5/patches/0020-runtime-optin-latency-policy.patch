@@ -1,0 +1,315 @@
+Subject: [PATCH] Make the latency policy opt-in and reloadable without a logout
+
+Revision 21 compiled the policy on behind the baked kernel release, so
+installing the package was enabling the experiment. Invert that for public
+testers: add a master switch that defaults off, and move the four policy
+knobs out of load-time statics so a running compositor can be re-policied.
+
+The exact-kernel gate keeps its load-time static form but changes role. It
+is no longer the enable, it is the outer AND condition, so a tester on a
+different kernel still fails closed to stock and cannot switch the
+experiment on from a config file.
+
+Policy now lives in a file-local object of relaxed atomics holding the
+already-combined effective values, so no frame path locks, allocates or
+recombines the gate with a knob. The only writer is a KConfigWatcher
+callback on the main thread, wired once from the first RenderLoop
+construction against kwinrc:
+
+  [LatencyExperiment]
+  Enabled=true                # master switch, default off
+  SchedulerMarginMode=2       # 0 fixed, 1 shadow, 2 adaptive
+  RenderBudgetMode=2          # 0 stock, 1 shadow, 2 adaptive
+  VrrRepaintCoalescing=true
+  SchedulerMarginUs=1000      # clamped to 0..10000
+
+An absent key falls back to the environment variable that used to own it
+(KWIN_LATENCY_EXPERIMENT, KWIN_ADAPTIVE_COMPOSITOR_MARGIN,
+KWIN_ADAPTIVE_RENDER_BUDGET, KWIN_VRR_REPAINT_COALESCING,
+KWIN_COMPOSITOR_SCHEDULING_MARGIN_US), so every documented variable keeps
+working as the boot-time default. KConfigWatcher reloads the file before
+it emits, so
+
+  kwriteconfig6 --file kwinrc --group LatencyExperiment --key Enabled true --notify
+
+takes effect in the live session. That is what a per-game Steam wrapper
+needs, and it is also the recovery path for a tester whose session went
+wrong: the compositor is exactly what they cannot restart.
+
+Two consequences worth stating. The PreciseTimer wakeups from patches
+0001 and 0002 are merged-upstream backports, not experimental policy, so
+compositeTimer construction stays gated on the kernel release alone;
+"disabled" means stock policy values driven onto the precise timer, not
+stock code paths. And delayedVrrTimer is now built whenever the gate
+passes rather than when coalescing happens to be on at construction,
+because a timer that does not exist cannot be armed when the policy flips
+on; both VRR timers are disarmed on every arm and stop so a flip mid-frame
+cannot strand a pending wakeup on the timer that armed it.
+
+Capture and telemetry statics (KWIN_LATENCY_CAPTURE,
+KWIN_LOG_PERFORMANCE_DATA, the sample divisor) stay environment-only
+load-time statics; they select what is measured, not what is applied.
+---
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -13,6 +13,13 @@
+ #include "window.h"
+ #include "workspace.h"
+ 
++#include <KConfigGroup>
++#include <KConfigWatcher>
++#include <KSharedConfig>
++
++#include <QCoreApplication>
++
++#include <atomic>
+ #include <sys/utsname.h>
+ 
+ using namespace std::chrono_literals;
+@@ -49,15 +56,129 @@
+ static const bool s_printDebugInfo = s_experimentKernelAllowed && (s_latencyCapture || qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0);
+ static const uint64_t s_compositorTelemetrySampleDivisor = static_cast<uint64_t>(std::clamp(
+     environmentVariableIntValue("KWIN_COMPOSITOR_TELEMETRY_SAMPLE_DIVISOR").value_or(16), 1, 4096));
+-static const std::chrono::microseconds s_schedulerMargin{
+-    s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000) : 1000};
++// Boot-time defaults for the runtime policy below. These stay load-time statics
++// on purpose: they are only the value a kwinrc key falls back to when it is
++// absent, so every KWIN_* variable already documented keeps working unchanged.
++// None of them is read on a frame path.
++static const bool s_envExperimentEnabled = environmentVariableIntValue("KWIN_LATENCY_EXPERIMENT").value_or(0) == 1;
++static const int s_envSchedulerMarginUs = std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000);
+ // 0 = fixed, 1 = shadow (learn but don't apply), 2 = adaptive (default).
+-static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(2), 0, 2) : 0;
++static const int s_envSchedulerMarginMode = std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(2), 0, 2);
+ // 0 = stock, 1 = shadow (learn but don't apply), 2 = adaptive (default).
+-static const int s_renderBudgetMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(2), 0, 2) : 0;
++static const int s_envRenderBudgetMode = std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(2), 0, 2);
+ // Coalesce non-foreground VRR damage to the active surface's measured cadence.
+-// Default-on behind the exact-kernel gate; set the variable to 0 to opt out.
+-static const bool s_vrrRepaintCoalescing = s_experimentKernelAllowed && environmentVariableIntValue("KWIN_VRR_REPAINT_COALESCING").value_or(1) == 1;
++static const bool s_envVrrRepaintCoalescing = environmentVariableIntValue("KWIN_VRR_REPAINT_COALESCING").value_or(1) == 1;
++
++// The live policy. Every member is constant-initialised, so the object needs no
++// dynamic initialisation and cannot be caught out by static init order; it holds
++// the *effective* values, so a frame path never has to combine the gate, the
++// master switch and a knob itself. Frame paths only relaxed-load. The
++// KConfigWatcher callback on the main thread is the sole writer, and the knobs
++// are independent, so no ordering between them has to be published.
++namespace
++{
++struct LatencyPolicy
++{
++    std::atomic<bool> enabled{false};
++    std::atomic<int> schedulerMarginMode{0};
++    std::atomic<int> renderBudgetMode{0};
++    std::atomic<bool> vrrRepaintCoalescing{false};
++    std::atomic<int> schedulerMarginUs{1000};
++};
++}
++static LatencyPolicy s_policy;
++
++static int policySchedulerMarginMode()
++{
++    return s_policy.schedulerMarginMode.load(std::memory_order_relaxed);
++}
++
++static int policyRenderBudgetMode()
++{
++    return s_policy.renderBudgetMode.load(std::memory_order_relaxed);
++}
++
++static bool policyVrrRepaintCoalescing()
++{
++    return s_policy.vrrRepaintCoalescing.load(std::memory_order_relaxed);
++}
++
++static std::chrono::nanoseconds policySchedulerMargin()
++{
++    return std::chrono::microseconds(s_policy.schedulerMarginUs.load(std::memory_order_relaxed));
++}
++
++// The exact-kernel gate stays a load-time static and becomes the outer AND
++// condition rather than the enable: a tester on a different kernel cannot switch
++// the experiment on from kwinrc. "Disabled" means the stock policy values are
++// driven onto the same code paths -- the merged-upstream PreciseTimer wakeups
++// from patches 0001/0002 keep running, they just carry stock numbers.
++static void applyLatencyPolicy(bool enabled, int schedulerMarginMode, int renderBudgetMode, bool vrrRepaintCoalescing, int schedulerMarginUs)
++{
++    const bool active = s_experimentKernelAllowed && enabled;
++    s_policy.enabled.store(active, std::memory_order_relaxed);
++    s_policy.schedulerMarginMode.store(active ? std::clamp(schedulerMarginMode, 0, 2) : 0, std::memory_order_relaxed);
++    s_policy.renderBudgetMode.store(active ? std::clamp(renderBudgetMode, 0, 2) : 0, std::memory_order_relaxed);
++    s_policy.vrrRepaintCoalescing.store(active && vrrRepaintCoalescing, std::memory_order_relaxed);
++    s_policy.schedulerMarginUs.store(active ? std::clamp(schedulerMarginUs, 0, 10'000) : 1000, std::memory_order_relaxed);
++
++    // A default-off build makes "I installed it and saw no difference" the most
++    // common tester report, so the active policy has to be stated rather than
++    // inferred. This runs on policy application only, never on a frame path.
++    qCDebug(KWIN_CORE, "Latency experiment policy: active=%d (kernel gate=%d, opt-in=%d), margin mode=%d, budget mode=%d, vrr coalescing=%d, margin=%dus",
++            s_policy.enabled.load(std::memory_order_relaxed) ? 1 : 0, s_experimentKernelAllowed ? 1 : 0, enabled ? 1 : 0,
++            policySchedulerMarginMode(), policyRenderBudgetMode(), policyVrrRepaintCoalescing() ? 1 : 0,
++            s_policy.schedulerMarginUs.load(std::memory_order_relaxed));
++}
++
++static void loadLatencyPolicy(const KSharedConfig::Ptr &config)
++{
++    const KConfigGroup group = config->group(QStringLiteral("LatencyExperiment"));
++    applyLatencyPolicy(group.readEntry("Enabled", s_envExperimentEnabled),
++                       group.readEntry("SchedulerMarginMode", s_envSchedulerMarginMode),
++                       group.readEntry("RenderBudgetMode", s_envRenderBudgetMode),
++                       group.readEntry("VrrRepaintCoalescing", s_envVrrRepaintCoalescing),
++                       group.readEntry("SchedulerMarginUs", s_envSchedulerMarginUs));
++}
++
++// Wired once, from the first RenderLoop construction, which is on the main
++// thread and after Application has opened kwinrc. KConfigWatcher reloads the
++// config before it emits, so
++//   kwriteconfig6 --file kwinrc --group LatencyExperiment --key Enabled true --notify
++// lands in the running compositor with no logout and no reconfigure round trip.
++static void ensureLatencyPolicyLoaded()
++{
++    static bool wired = false;
++    if (wired) {
++        return;
++    }
++    // Environment defaults first, so a RenderLoop built without an Application
++    // (the DRM unit tests) still runs against a defined policy.
++    applyLatencyPolicy(s_envExperimentEnabled, s_envSchedulerMarginMode, s_envRenderBudgetMode, s_envVrrRepaintCoalescing, s_envSchedulerMarginUs);
++    // Not kwinApp(): that static_casts QCoreApplication::instance() behind a
++    // Q_ASSERT the release build compiles out, so in testMockDrm -- a plain
++    // QTest application that does construct RenderLoops -- it hands back a
++    // bogus Application and reading config() off it segfaults. A checked cast
++    // is the difference between "no Application" and "not our Application".
++    Application *const application = qobject_cast<Application *>(QCoreApplication::instance());
++    if (!application || !application->config()) {
++        return;
++    }
++    wired = true;
++
++    const KSharedConfig::Ptr config = application->config();
++    loadLatencyPolicy(config);
++    // Deliberately never destroyed. The watcher outlives every RenderLoop, and
++    // running its destructor during static destruction would touch a D-Bus
++    // connection that QCoreApplication has already torn down.
++    auto *watcher = new KConfigWatcher::Ptr(KConfigWatcher::create(config));
++    QObject::connect(watcher->data(), &KConfigWatcher::configChanged, watcher->data(), [config](const KConfigGroup &group, const QByteArrayList &) {
++        if (group.name() == QLatin1StringView("LatencyExperiment")) {
++            loadLatencyPolicy(config);
++        }
++    });
++}
++
+ static constexpr unsigned int s_adaptiveMarginWindowSize = 256;
+ static constexpr unsigned int s_adaptiveExternalStallFallbackCount = 2;
+ static constexpr unsigned int s_adaptiveRenderBudgetWindowSize = 128;
+@@ -92,6 +213,7 @@
+     : q(q)
+     , output(output)
+ {
++    ensureLatencyPolicyLoaded();
+     resetAdaptiveCompositorSchedulingMargins();
+     resetAdaptiveRenderBudgets();
+     if (s_experimentKernelAllowed) {
+@@ -99,8 +221,9 @@
+         QObject::connect(compositeTimer.get(), &PreciseTimer::timeout, q, [this] {
+             dispatch();
+         });
+-    }
+-    if (s_vrrRepaintCoalescing) {
++        // Built whenever the gate passes rather than when coalescing happens to
++        // be on at construction: the policy is switchable at runtime now, and a
++        // timer that does not exist cannot be armed when it flips on.
+         delayedVrrTimer = std::make_unique<PreciseTimer>();
+         QObject::connect(delayedVrrTimer.get(), &PreciseTimer::timeout, q, [this] {
+             this->q->scheduleRepaint(nullptr, nullptr);
+@@ -154,7 +277,7 @@
+ {
+     const auto stockPrediction = renderJournal.result();
+     const auto &state = adaptiveRenderBudgetState(adaptiveMarginPath(presentationMode));
+-    if (s_renderBudgetMode != 2) {
++    if (policyRenderBudgetMode() != 2) {
+         return stockPrediction;
+     }
+     if (!state.warmedUp) {
+@@ -165,7 +288,7 @@
+ 
+ void RenderLoopPrivate::updateAdaptiveRenderBudget(AdaptiveMarginPath path, std::chrono::nanoseconds rawDuration, std::chrono::nanoseconds refreshDuration)
+ {
+-    if (s_renderBudgetMode == 0 || refreshDuration <= 0ns) {
++    if (policyRenderBudgetMode() == 0 || refreshDuration <= 0ns) {
+         return;
+     }
+ 
+@@ -272,9 +395,16 @@
+ 
+ void RenderLoopPrivate::startDelayedVrrTimer(std::chrono::nanoseconds deadline)
+ {
+-    if (s_vrrRepaintCoalescing) {
++    // The policy can flip between one arm and the next, so whichever timer is
++    // not being used has to be disarmed here as well; otherwise a flip strands a
++    // pending wakeup on the timer that armed it and the repaint fires twice.
++    if (delayedVrrTimer && policyVrrRepaintCoalescing()) {
++        legacyDelayedVrrTimer.stop();
+         delayedVrrTimer->start(deadline);
+     } else {
++        if (delayedVrrTimer && delayedVrrTimer->isActive()) {
++            delayedVrrTimer->stop();
++        }
+         constexpr std::chrono::milliseconds stockDelay = 1'000ms / 30;
+         legacyDelayedVrrTimer.start(stockDelay, Qt::PreciseTimer, q);
+     }
+@@ -282,18 +412,15 @@
+ 
+ void RenderLoopPrivate::stopDelayedVrrTimer()
+ {
+-    if (s_vrrRepaintCoalescing) {
+-        if (delayedVrrTimer->isActive()) {
+-            delayedVrrTimer->stop();
+-        }
+-    } else {
+-        legacyDelayedVrrTimer.stop();
++    if (delayedVrrTimer && delayedVrrTimer->isActive()) {
++        delayedVrrTimer->stop();
+     }
++    legacyDelayedVrrTimer.stop();
+ }
+ 
+ std::chrono::nanoseconds RenderLoopPrivate::compositorSchedulingMargin() const
+ {
+-    return s_schedulerMarginMode == 2 ? adaptiveMarginState(adaptiveMarginPath(presentationMode)).margin : s_schedulerMargin;
++    return policySchedulerMarginMode() == 2 ? adaptiveMarginState(adaptiveMarginPath(presentationMode)).margin : policySchedulerMargin();
+ }
+ 
+ RenderLoopPrivate::AdaptiveMarginPath RenderLoopPrivate::adaptiveMarginPath(PresentationMode mode)
+@@ -344,7 +471,7 @@
+     // physical wake twice; scheduleNextRepaint re-arms it for the next wake.
+     wakeSampleEligible = false;
+     wakeSampleTrained = false;
+-    if (s_schedulerMarginMode == 0 || !wakeSampleValid) {
++    if (policySchedulerMarginMode() == 0 || !wakeSampleValid) {
+         return;
+     }
+ 
+@@ -538,11 +665,11 @@
+             *m_debugOutput << frame->targetPageflipTime().time_since_epoch().count() << "," << timestamp.count() << "," << times.start.time_since_epoch().count() << "," << times.end.time_since_epoch().count()
+                            << "," << safetyMargin.count() << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0) << "," << frame->predictedRenderTime().count()
+                            << "," << desiredWakeTimestamp.count() << "," << armedWakeTimestamp.count() << "," << actualWakeTimestamp.count() << "," << wakeLateness.count() << "," << scheduleDeficit.count() << "," << appliedSchedulerMargin.count()
+-                           << "," << adaptiveState.margin.count() << "," << s_schedulerMarginMode << "," << (wakeSampleValid ? 1 : 0) << "," << (s_experimentKernelAllowed ? 1 : 0)
++                           << "," << adaptiveState.margin.count() << "," << policySchedulerMarginMode() << "," << (wakeSampleValid ? 1 : 0) << "," << (s_experimentKernelAllowed ? 1 : 0)
+                            << "," << adaptiveMarginPathNumber(scheduledAdaptiveMarginPath) << "," << adaptiveState.windowSampleCount << "," << adaptiveState.externalStallCount << "," << adaptiveState.secondLargestWakeLateness.count()
+                            << "," << (adaptiveState.warmedUp ? 1 : 0) << "," << wakeSampleSequence << "," << (wakeSampleTrained ? 1 : 0) << "," << s_compositorTelemetrySampleDivisor
+                            << "," << rawRenderDuration.count() << "," << stockRenderDuration.count() << "," << renderJournal.result().count() << "," << renderBudgetState.budget.count() << "," << renderBudgetState.emergencyBudget.count()
+-                           << "," << s_renderBudgetMode << "," << adaptiveMarginPathNumber(completedPath) << "," << renderBudgetState.windowSampleCount << "," << renderBudgetState.secondLargestRenderDuration.count() << "," << (renderBudgetState.warmedUp ? 1 : 0)
++                           << "," << policyRenderBudgetMode() << "," << adaptiveMarginPathNumber(completedPath) << "," << renderBudgetState.windowSampleCount << "," << renderBudgetState.secondLargestRenderDuration.count() << "," << (renderBudgetState.warmedUp ? 1 : 0)
+                            << "," << static_cast<unsigned int>(lastRepaintDecision) << "," << lastVrrForegroundCadence.count() << "," << lastVrrFallbackDeadline.count()
+                            << "," << static_cast<unsigned int>(frameTelemetry.directScanoutReason) << "," << frameTelemetry.directScanoutAttempts << "," << frameTelemetry.presentationTests << "," << frameTelemetry.presentationTestDuration.count()
+                            << "," << frameTelemetry.presentationFallbacks << "," << frameTelemetry.presentQueueDuration.count()
+@@ -692,7 +819,7 @@
+     if (activeFrameTime && d->output) {
+         SurfaceItem *const surfaceItem = workspace()->activeWindow()->surfaceItem();
+         if (item != surfaceItem && !surfaceItem->isAncestorOf(item)) {
+-            if (s_vrrRepaintCoalescing) {
++            if (policyVrrRepaintCoalescing()) {
+                 const auto foregroundCadence = std::max(*activeFrameTime, outputRefreshDuration(d->refreshRate));
+                 const auto currentTime = std::chrono::steady_clock::now().time_since_epoch();
+                 const auto foregroundDeadline = std::max(d->lastPresentationTimestamp + foregroundCadence, currentTime);

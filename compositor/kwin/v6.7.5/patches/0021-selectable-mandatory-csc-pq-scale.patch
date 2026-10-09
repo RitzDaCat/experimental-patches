@@ -1,0 +1,149 @@
+Mandatory DRM CSC stages: runtime-selectable PQ domain convention
+
+The NVIDIA Full pipeline's two non-bypassable 1D curve stages (CSC0LUT
+PQ-125-inverse-EOTF and CSC1LUT PQ-125-EOTF) are fixed functions: the
+nvidia-drm commit path never reads their colorop state, so nothing KWin
+programs changes what they apply. The driver bridges only the bypassable
+DEGAMMA named curve to the DRM UAPI convention (10,000 nits -> 125.0)
+via an implicit degamma multiplier; its internal transfer-function
+convention maps 10,000 nits -> 1.0.
+
+Patch 0016's compensation assumes the UAPI convention for these
+mandatory stages. If the hardware instead applies the internal
+convention, the composed transform is wrong by a full PQ-domain factor.
+An offline harness against the probed NVIDIA Full graph measures:
+
+  assumption matches hardware: worst error <= 0.6 nits of 420 (LUT
+  quantization level), zero domain clamps
+  assumption mismatches: mean linear error 73-95 nits, ~322k domain
+  clamp events per grid
+
+This patch makes the mandatory-stage scale runtime-selectable via
+KWIN_DRM_NVIDIA_CSC_PQ_SCALE (values "1" or "125"). The default stays
+125 (the UAPI assumption), so stock behavior is unchanged and a wrong
+guess cannot silently pass; it can only be resolved by the controlled
+live test in docs/DIRECT_SCANOUT_NVIDIA_INVESTIGATION_2026-08-23.md.
+Bypassable named curves always use the UAPI scale because the driver
+bridges them explicitly.
+
+Behavior remains behind the exact-kernel gate and the color-pipeline
+opt-in from patches 0013 and later.
+
+--- a/src/backends/drm/drm_colorop.cpp
++++ b/src/backends/drm/drm_colorop.cpp
+@@ -23,6 +23,8 @@
+ namespace KWin
+ {
+ 
++static double mandatoryCscPqScale();
++
+ DrmAbstractColorOp::DrmAbstractColorOp(DrmAbstractColorOp *next, Features features, const QString &name)
+     : m_next(next)
+     , m_features(features)
+@@ -1118,14 +1120,24 @@
+     commit->addProperty(*m_bypass, 1);
+ }
+ 
++double DrmNamed1DLut::transferFunctionScale(TransferFunction::Type type) const
++{
++    if (type != TransferFunction::PerceptualQuantizer) {
++        return 1.0;
++    }
++    // Bypassable named curves are bridged to the UAPI convention by the
++    // driver (implicit degamma multiplier); their scale is always 125.
++    // Mandatory fixed stages follow the runtime-selected convention.
++    return m_bypass ? 125.0 : mandatoryCscPqScale();
++}
++
+ std::optional<DrmAbstractColorOp::Scaling> DrmNamed1DLut::inputScaling(const ColorOp &op) const
+ {
+     const auto evaluateMat = [](const QMatrix4x4 &mat, float value) {
+         return (mat * QVector3D(value, value, value)).x();
+     };
+     if (const auto tf = std::get_if<InverseColorTransferFunction>(&op.operation)) {
+-        // PQ_125 has 125 as the maximum value (instead of 10'000 or 1)
+-        const double transferFunctionScale = tf->tf.type == TransferFunction::PerceptualQuantizer ? 125 : 1;
++        const double transferFunctionScale = this->transferFunctionScale(tf->tf.type);
+         const bool rangeMatches = op.input.min >= -0.001 && op.input.max <= transferFunctionScale + 0.001;
+         if (rangeMatches && qFuzzyIsNull(tf->tf.minLuminance) && qFuzzyCompare(transferFunctionScale, tf->tf.maxLuminance)) {
+             // the transfer function matches exactly, no need for scaling
+@@ -1162,8 +1174,7 @@
+         return (mat * QVector3D(value, value, value)).x();
+     };
+     if (const auto tf = std::get_if<ColorTransferFunction>(&op.operation)) {
+-        // PQ_125 has 125 as the maximum value (instead of 10'000 or 1)
+-        const double transferFunctionScale = tf->tf.type == TransferFunction::PerceptualQuantizer ? 125 : 1;
++        const double transferFunctionScale = this->transferFunctionScale(tf->tf.type);
+         const bool rangeMatches = op.output.min >= -0.001 && op.output.max <= transferFunctionScale + 0.001;
+         if (rangeMatches && qFuzzyIsNull(tf->tf.minLuminance) && qFuzzyCompare(transferFunctionScale, tf->tf.maxLuminance)) {
+             // the transfer function matches exactly, no need for scaling
+@@ -1194,6 +1205,26 @@
+     }
+ }
+ 
++// NVIDIA's mandatory CSC0LUT/CSC1LUT stages are fixed functions whose PQ
++// domain convention is not programmable and not verifiable from the DRM UAPI
++// alone. The UAPI contract maps 10,000 nits to 125; NVIDIA's internal
++// datapath convention maps 10,000 nits to 1.0, and the driver bridges only
++// the bypassable DEGAMMA path to the UAPI (implicit 125x multiplier).
++// This scale is runtime-selectable so one controlled experiment can
++// determine which convention the hardware implements. Default: UAPI (125),
++// which keeps stock patch 0016 behavior.
++static double mandatoryCscPqScale()
++{
++    static const double scale = [] {
++        const QByteArray value = qgetenv("KWIN_DRM_NVIDIA_CSC_PQ_SCALE");
++        if (value == "1") {
++            return 1.0;
++        }
++        return 125.0;
++    }();
++    return scale;
++}
++
+ static std::optional<std::pair<TransferFunction::Type, bool>> pickSupportedFunction(DrmEnumProperty<Named1DLutType> *property)
+ {
+     // Color pipeline descriptions normally expose only one choice per mandatory
+@@ -1214,13 +1245,7 @@
+     return std::nullopt;
+ }
+ 
+-static double namedTransferFunctionScale(TransferFunction::Type type)
+-{
+-    // DRM's PQ 125 curve maps code value 1 to 125. The other named curves are
+-    // normalized to one. DrmNamed1DLut::inputScaling/outputScaling use the same
+-    // convention.
+-    return type == TransferFunction::PerceptualQuantizer ? 125.0 : 1.0;
+-}
++
+ 
+ std::optional<DrmAbstractColorOp::Scaling> DrmNamed1DLut::bypassScaling(const ColorOp &nextOperation) const
+ {
+@@ -1229,7 +1254,7 @@
+         return std::nullopt;
+     }
+     const auto [type, inverse] = *function;
+-    const double scale = namedTransferFunctionScale(type);
++    const double scale = transferFunctionScale(type);
+     if (!inverse && (nextOperation.input.min < -ColorPipeline::s_maxResolution || nextOperation.input.max > 1.0 + ColorPipeline::s_maxResolution)) {
+         // An EOTF cannot losslessly consume values outside its encoded domain.
+         return std::nullopt;
+@@ -1268,7 +1293,7 @@
+         return std::nullopt;
+     }
+     const auto [type, inverse] = *function;
+-    const double scale = namedTransferFunctionScale(type);
++    const double scale = transferFunctionScale(type);
+     const double maximumOutput = inverse ? 1.0 : scale;
+     if (lastAppliedOp.output.min < -ColorPipeline::s_maxResolution || lastAppliedOp.output.max > maximumOutput + ColorPipeline::s_maxResolution) {
+         // There is no later block in this path to restore values clipped by the
+--- a/src/backends/drm/drm_colorop.h
++++ b/src/backends/drm/drm_colorop.h
+@@ -270,6 +270,7 @@
+ 
+ private:
+     std::optional<Named1DLutType> getType(const ColorOp::Operation &op) const;
++    double transferFunctionScale(TransferFunction::Type type) const;
+ 
+     DrmEnumProperty<Named1DLutType> *const m_value;
+     DrmProperty *const m_bypass;

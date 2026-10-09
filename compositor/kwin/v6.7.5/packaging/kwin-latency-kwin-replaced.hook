@@ -1,0 +1,13 @@
+# Say something when the kwin package is replaced. PreTransaction on purpose:
+# the helper script still exists at that point even when this very transaction
+# is removing the patched package that installed it.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = kwin
+
+[Action]
+Description = kwin-latency: kwin package is being replaced
+When = PreTransaction
+Exec = /usr/lib/kwin-latency/check-gate.sh replaced

@@ -1,0 +1,14 @@
+# Local build, capture and validation output.
+/artifacts/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.orig
+*.rej
+*.pkg.tar.*
+*.src.tar.*
+
+# Local tool/session configuration.
+.env

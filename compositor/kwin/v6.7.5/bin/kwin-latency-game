@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# Per-game opt-in for the KWin latency policy.
+#
+# Usage: kwin-latency-game [--off] -- COMMAND [ARGS...]
+# Steam launch option: kwin-latency-game -- %command%
+#
+# No environment variable can reach the compositor from here. kwin_wayland
+# starts at login and kwin_wayland_wrapper freezes its environment there, so a
+# launch option sets variables for the game process that KWin never reads. The
+# only live channel is the kwinrc group below, which a revision 22 compositor
+# watches through KConfigWatcher; kwriteconfig6 --notify raises exactly the
+# change signal that watcher listens for.
+#
+# This script is installed to /usr/bin and must stay standalone: no repo-
+# relative paths, no sourcing of project files, nothing outside coreutils and
+# the KConfig command line tools.
+
+set -euo pipefail
+
+CONFIG_FILE=kwinrc
+CONFIG_GROUP=LatencyExperiment
+CONFIG_KEY=Enabled
+
+# The value this run installs, and the value that was there before it did.
+# An empty PREVIOUS_VALUE means the key was absent, and absent restores as a
+# delete rather than as "false": absent is the revision 22 shipped default and
+# false is an explicit user override, and the two are not the same state to
+# read back later. Only keys this script writes are ever snapshotted or
+# restored, so a session-wide policy set through kwin-latencyctl survives a
+# game that only flips Enabled.
+DESIRED_VALUE=true
+PREVIOUS_VALUE=
+RESTORE_ARMED=0
+COMMAND=()
+
+usage() {
+    cat <<'EOF'
+Per-game KWin latency policy for Steam launch options
+
+Usage: kwin-latency-game [--off] -- COMMAND [ARGS...]
+
+Options:
+  --off     Write Enabled=false for this command instead of true. For users who
+            opt in session-wide and want stock behavior for one title.
+  --on      Write Enabled=true (the default).
+  -h        Show this help
+
+The prior value of the kwinrc LatencyExperiment/Enabled key is restored when
+COMMAND exits, including on crash or kill, and COMMAND's exit status is passed
+through unchanged. The one exception is SIGKILL of the wrapper itself, which
+no process can trap; after that, "kwin-latencyctl status" shows the leftover
+state and "kwin-latencyctl disable" clears it.
+
+Steam launch option:
+  kwin-latency-game -- %command%
+EOF
+}
+
+note() {
+    printf 'kwin-latency-game: %s\n' "$*"
+}
+
+warn() {
+    printf 'kwin-latency-game: warning: %s\n' "$*" >&2
+}
+
+die() {
+    printf 'kwin-latency-game: error: %s\n' "$*" >&2
+    exit 1
+}
+
+# The KConfig command line tools are the entire mechanism. Without them there is
+# no way to read the prior policy, so there is no way to promise it is restored
+# afterwards; refuse rather than run the game in a state we cannot undo.
+require_config_tools() {
+    command -v kreadconfig6 >/dev/null \
+        || die "kreadconfig6 not found; install the kconfig package"
+    command -v kwriteconfig6 >/dev/null \
+        || die "kwriteconfig6 not found; install the kconfig package"
+}
+
+# A missing session is not a reason to refuse to launch. This script sits
+# between Steam and the title, so dying here costs the user the game rather than
+# the experiment. Degrade to a warning and let COMMAND run.
+warn_without_session() {
+    [[ -n ${WAYLAND_DISPLAY:-} || -n ${DISPLAY:-} ]] && return 0
+    warn "no Wayland or X11 session detected; the policy change may reach no compositor"
+}
+
+# Absent and empty are indistinguishable through kreadconfig6, which prints
+# nothing and exits 0 for a key that does not exist. That is the behaviour the
+# restore path is built on, so it is read here without a rc check on purpose.
+read_policy() {
+    kreadconfig6 --file "$CONFIG_FILE" --group "$CONFIG_GROUP" --key "$CONFIG_KEY" 2>/dev/null || true
+}
+
+# --notify is what makes the write live. Without it the value lands in kwinrc
+# and the running compositor does not learn about it until the next login.
+write_policy() {
+    kwriteconfig6 --file "$CONFIG_FILE" --group "$CONFIG_GROUP" --key "$CONFIG_KEY" \
+        --notify "$1"
+}
+
+delete_policy() {
+    kwriteconfig6 --file "$CONFIG_FILE" --group "$CONFIG_GROUP" --key "$CONFIG_KEY" \
+        --notify --delete
+}
+
+# Restores whatever was there before, then exits with the status the shell was
+# already carrying. Armed only after the write succeeds, so a failed write never
+# deletes a key this script did not set. Failures here warn instead of dying:
+# the game has already exited and the user's exit status must survive.
+restore_policy() {
+    local status=$?
+    trap - EXIT
+    if (( RESTORE_ARMED )); then
+        RESTORE_ARMED=0
+        if [[ -n $PREVIOUS_VALUE ]]; then
+            write_policy "$PREVIOUS_VALUE" || warn "could not restore $CONFIG_KEY=$PREVIOUS_VALUE"
+        else
+            delete_policy || warn "could not remove the $CONFIG_KEY key this run added"
+        fi
+    fi
+    exit "$status"
+}
+
+parse_arguments() {
+    local separator=0
+    while (( $# )); do
+        case $1 in
+            --off) DESIRED_VALUE=false; shift ;;
+            --on) DESIRED_VALUE=true; shift ;;
+            -h|--help) usage; exit 0 ;;
+            --) shift; separator=1; break ;;
+            *) die "unknown option: $1 (usage: kwin-latency-game [--off] -- COMMAND [ARGS...])" ;;
+        esac
+    done
+    (( separator )) || die "missing '--' separator (usage: kwin-latency-game [--off] -- COMMAND [ARGS...])"
+    (( $# )) || die "no command given after '--'"
+    COMMAND=("$@")
+}
+
+main() {
+    parse_arguments "$@"
+    require_config_tools
+    warn_without_session
+
+    PREVIOUS_VALUE=$(read_policy)
+    # EXIT covers a normal return and an uncaught error. The three signals are
+    # trapped as well because a killed shell does not otherwise run its EXIT
+    # trap, and a killed game must still leave the policy as it found it.
+    trap restore_policy EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+
+    write_policy "$DESIRED_VALUE" || die "could not write $CONFIG_GROUP/$CONFIG_KEY to $CONFIG_FILE"
+    RESTORE_ARMED=1
+    note "$CONFIG_KEY=$DESIRED_VALUE for this command (was ${PREVIOUS_VALUE:-absent})"
+
+    local status=0
+    "${COMMAND[@]}" || status=$?
+    exit "$status"
+}
+
+main "$@"

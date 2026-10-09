@@ -1,0 +1,6 @@
+# Apply in order. Lines starting with # are skipped.
+0001-bpf-native-scalar-bitops.patch
+0002-sched-ext-dsq-direct-index.patch
+# Wake signals are excluded because of the known boot warning.
+# Explicit research selection: --series series.wake-signals
+# Lean idle is not included in any series: never booted, no bundled consumer.

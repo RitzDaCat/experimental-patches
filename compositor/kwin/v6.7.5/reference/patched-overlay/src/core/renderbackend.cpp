@@ -1,0 +1,278 @@
+/*
+    SPDX-FileCopyrightText: 2021 Vlad Zahorodnii <vlad.zahorodnii@kde.org>
+
+    SPDX-License-Identifier: GPL-2.0-or-later
+*/
+
+#include "renderbackend.h"
+#include "renderloop_p.h"
+#include "syncobjtimeline.h"
+
+#include <QCoreApplication>
+#include <QThread>
+#include <atomic>
+#include <drm_fourcc.h>
+#include <ranges>
+#include <sys/utsname.h>
+
+namespace KWin
+{
+
+static bool latencyCaptureEnabled()
+{
+    if (qEnvironmentVariableIntValue("KWIN_LATENCY_CAPTURE") != 1) {
+        return false;
+    }
+    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
+    struct utsname systemInfo;
+    return !expectedRelease.isEmpty() && uname(&systemInfo) == 0 && expectedRelease == systemInfo.release;
+}
+
+static const bool s_latencyCaptureEnabled = latencyCaptureEnabled();
+static std::atomic<uint64_t> s_latencyFrameSequence = 0;
+
+RenderTimeSpan RenderTimeSpan::operator|(const RenderTimeSpan &other) const
+{
+    return RenderTimeSpan{
+        .start = std::min(start, other.start),
+        .end = std::max(end, other.end),
+        .predictionFloor = std::max(predictionFloor, other.predictionFloor),
+    };
+}
+
+CpuRenderTimeQuery::CpuRenderTimeQuery()
+    : m_start(std::chrono::steady_clock::now())
+{
+}
+
+void CpuRenderTimeQuery::end()
+{
+    m_end = std::chrono::steady_clock::now();
+}
+
+std::optional<RenderTimeSpan> CpuRenderTimeQuery::query()
+{
+    Q_ASSERT(m_end);
+    return RenderTimeSpan{
+        .start = m_start,
+        .end = *m_end,
+    };
+}
+
+OutputFrame::OutputFrame(RenderLoop *loop, std::chrono::nanoseconds refreshDuration)
+    : m_loop(loop)
+    , m_refreshDuration(refreshDuration)
+    , m_targetPageflipTime(loop->nextPresentationTimestamp())
+    , m_predictedRenderTime(loop->predictedRenderTime())
+{
+    if (s_latencyCaptureEnabled) {
+        m_latencyTelemetry.frameSequence = s_latencyFrameSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+        m_latencyTelemetry.frameCreated = std::chrono::steady_clock::now();
+    }
+}
+
+OutputFrame::~OutputFrame()
+{
+    Q_ASSERT(QThread::currentThread() == QCoreApplication::instance()->thread());
+    if (!m_presented && m_loop) {
+        RenderLoopPrivate::get(m_loop)->notifyFrameDropped();
+    }
+}
+
+void OutputFrame::addFeedback(std::shared_ptr<PresentationFeedback> &&feedback)
+{
+    m_feedbacks.push_back(std::move(feedback));
+}
+
+std::optional<RenderTimeSpan> OutputFrame::queryRenderTime() const
+{
+    if (m_renderTimeQueries.empty()) {
+        return RenderTimeSpan{};
+    }
+    const auto first = m_renderTimeQueries.front()->query();
+    if (!first) {
+        return std::nullopt;
+    }
+    RenderTimeSpan ret = *first;
+    for (const auto &query : m_renderTimeQueries | std::views::drop(1)) {
+        const auto opt = query->query();
+        if (!opt) {
+            return std::nullopt;
+        }
+        ret = ret | *opt;
+    }
+    return ret;
+}
+
+void OutputFrame::presented(std::chrono::nanoseconds timestamp, PresentationMode mode)
+{
+    Q_ASSERT(!m_presented);
+    m_presented = true;
+    if (s_latencyCaptureEnabled) {
+        m_latencyTelemetry.completionCallback = std::chrono::steady_clock::now();
+    }
+
+    const auto renderTime = queryRenderTime();
+    if (m_loop) {
+        RenderLoopPrivate::get(m_loop)->notifyFrameCompleted(timestamp, renderTime, mode, this);
+    }
+    for (const auto &feedback : m_feedbacks) {
+        feedback->presented(m_refreshDuration, timestamp, mode);
+    }
+}
+
+void OutputFrame::setContentType(ContentType type)
+{
+    m_contentType = type;
+}
+
+std::optional<ContentType> OutputFrame::contentType() const
+{
+    return m_contentType;
+}
+
+void OutputFrame::setPresentationMode(PresentationMode mode)
+{
+    m_presentationMode = mode;
+}
+
+PresentationMode OutputFrame::presentationMode() const
+{
+    return m_presentationMode;
+}
+
+void OutputFrame::addRenderTimeQuery(std::unique_ptr<RenderTimeQuery> &&query)
+{
+    m_renderTimeQueries.push_back(std::move(query));
+}
+
+std::chrono::steady_clock::time_point OutputFrame::targetPageflipTime() const
+{
+    return m_targetPageflipTime;
+}
+
+std::chrono::nanoseconds OutputFrame::refreshDuration() const
+{
+    return m_refreshDuration;
+}
+
+std::chrono::nanoseconds OutputFrame::predictedRenderTime() const
+{
+    return m_predictedRenderTime;
+}
+
+uint64_t OutputFrame::latencyFrameSequence() const
+{
+    return m_latencyTelemetry.frameSequence;
+}
+
+void OutputFrame::recordCompositeStart(std::chrono::steady_clock::time_point timestamp)
+{
+    m_latencyTelemetry.compositeStart = timestamp;
+}
+
+void OutputFrame::recordPrePaint(std::chrono::nanoseconds duration)
+{
+    m_latencyTelemetry.prePaintDuration += duration;
+}
+
+void OutputFrame::recordLayerSetup(std::chrono::nanoseconds duration)
+{
+    m_latencyTelemetry.layerSetupDuration += duration;
+}
+
+void OutputFrame::recordDirectScanoutPreparation(std::chrono::nanoseconds duration)
+{
+    m_latencyTelemetry.directScanoutPrepareDuration += duration;
+}
+
+void OutputFrame::recordCpuRenderLayers(std::chrono::nanoseconds duration)
+{
+    m_latencyTelemetry.cpuRenderLayersDuration += duration;
+}
+
+void OutputFrame::recordPostPaint(std::chrono::nanoseconds duration)
+{
+    m_latencyTelemetry.postPaintDuration += duration;
+}
+
+void OutputFrame::recordDirectScanout(DirectScanoutTelemetryReason reason)
+{
+    m_latencyTelemetry.directScanoutReason = reason;
+    m_latencyTelemetry.directScanoutAttempts++;
+}
+
+void OutputFrame::recordPresentationTest(std::chrono::nanoseconds duration)
+{
+    m_latencyTelemetry.presentationTests++;
+    m_latencyTelemetry.presentationTestDuration += duration;
+}
+
+void OutputFrame::recordPresentationFallback()
+{
+    m_latencyTelemetry.presentationFallbacks++;
+}
+
+void OutputFrame::recordPresentQueue(std::chrono::nanoseconds duration)
+{
+    m_latencyTelemetry.presentQueueDuration += duration;
+}
+
+const FrameLatencyTelemetry &OutputFrame::latencyTelemetry() const
+{
+    return m_latencyTelemetry;
+}
+
+std::optional<double> OutputFrame::brightness() const
+{
+    return m_brightness;
+}
+
+void OutputFrame::setBrightness(double brightness)
+{
+    m_brightness = brightness;
+}
+
+std::optional<double> OutputFrame::dimmingFactor() const
+{
+    return m_dimmingFactor;
+}
+
+void OutputFrame::setDimmingFactor(double factor)
+{
+    m_dimmingFactor = factor;
+}
+
+std::optional<double> OutputFrame::artificialHdrHeadroom() const
+{
+    return m_artificialHdrHeadroom;
+}
+
+void OutputFrame::setArtificialHdrHeadroom(double edr)
+{
+    m_artificialHdrHeadroom = edr;
+}
+
+bool RenderBackend::checkGraphicsReset()
+{
+    return false;
+}
+
+DrmDevice *RenderBackend::drmDevice() const
+{
+    return nullptr;
+}
+
+bool RenderBackend::testImportBuffer(GraphicsBuffer *buffer)
+{
+    return false;
+}
+
+FormatModifierMap RenderBackend::supportedFormats() const
+{
+    return FormatModifierMap{{DRM_FORMAT_XRGB8888, ModifierList{DRM_FORMAT_MOD_LINEAR}}};
+}
+
+} // namespace KWin
+
+#include "moc_renderbackend.cpp"

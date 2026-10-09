@@ -1,0 +1,24 @@
+name: Validate collection
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  metadata-and-tests:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check helper and collection metadata
+        run: |
+          bash -n scripts/apply.sh
+          python3 scripts/validate.py
+          python3 -m unittest discover -s tests -v
+      - name: Check bundled KWin tooling and models
+        working-directory: compositor/kwin/v6.7.5
+        run: |
+          bash -n PKGBUILD install.sh bin/kwin-latencyctl bin/kwin-latency-game
+          python3 -m unittest discover -s tests -v
+          python3 scripts/generate_readme_graphs.py --check

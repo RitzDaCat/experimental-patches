@@ -1,0 +1,1008 @@
+Subject: [PATCH] scx_cake: snapshot of kernel experiment support
+
+Base: public RitzDaCat/scx commit 8fc5ec9b105198286f7c9f7c53e2bf40308c3a4a.
+Source: committed source 6dce0901f151beb6a4d8875b5cf0af3cd9dd5643, scheds/rust/scx_cake/src only.
+Exported with git diff --binary --full-index. No working-tree changes included.
+Includes native bitops, wake-signal reporting and the intervening scheduler
+changes; this is a source snapshot, not an isolated performance experiment.
+License: GPL-2.0-only, matching scx_cake.
+
+diff --git a/scheds/rust/scx_cake/src/bpf/cake.bpf.c b/scheds/rust/scx_cake/src/bpf/cake.bpf.c
+index 94024f0bd581bf7806bb4e1e878516c53eebab54..31a362f9b8708bf716188b2f3190e5417ceef2d7 100644
+--- a/scheds/rust/scx_cake/src/bpf/cake.bpf.c
++++ b/scheds/rust/scx_cake/src/bpf/cake.bpf.c
+@@ -9,6 +9,40 @@
+ #include <scx/common.bpf.h>
+ #include "intf.h"
+ 
++extern u64 bpf_ctz64(u64 x) __weak __ksym;
++extern u64 bpf_popcnt64(u64 x) __weak __ksym;
++extern u64 bpf_clz64(u64 x) __weak __ksym;
++const volatile bool cake_native_ctz;
++const volatile bool cake_native_popcnt;
++const volatile bool cake_native_clz;
++const volatile bool cake_native_ring;
++const volatile bool cake_native_hist;
++
++static __always_inline u32 cake_ctz64(u64 word)
++{
++	if (cake_native_ctz)
++		/* Nonzero CPU masks retain the verifier's 0..63 bound. */
++		return (u32)bpf_ctz64(word) & 63;
++	return (u32)__builtin_ctzll(word);
++}
++
++static __always_inline u32 cake_popcnt64(u64 word)
++{
++	if (cake_native_popcnt)
++		return (u32)bpf_popcnt64(word);
++	return (u32)__builtin_popcountll(word);
++}
++
++static __always_inline u32 cake_clz64(u64 word)
++{
++	if (cake_native_clz)
++		return (u32)bpf_clz64(word) & 63;
++	return (u32)__builtin_clzll(word);
++}
++
++#include "scalar-experiments.bpf.h"
++#include "wake-signals.bpf.h"
++
+ /* on_cpu changed from int to u8. An unsigned local int lets CO-RE narrow
+  * the load to u8 without poisoning an unused signed read. On old kernels
+  * the width stays unchanged; signedness does not affect our zero test. */
+@@ -872,7 +906,8 @@ static __always_inline bool cake_cpu_irq_bad(s32 cpu)
+ {
+ 	u32 c = (u32)cpu & (MAX_CPUS - 1);
+ 
+-	return cpu >= 0 && (cake_cpu_irq_hot(c) || cake_irq_live[c].depth);
++	return cpu >= 0 && (cake_cpu_irq_hot(c) || cake_irq_live[c].depth ||
++			   cake_signal_irq_hot(c));
+ }
+ 
+ /* The timer is the one interrupt scheduled ahead: a CPU whose next tick fires
+@@ -998,7 +1033,7 @@ static __always_inline u64 cake_pool_dsq(u32 llc)
+ 	return (u64)LLC_WAKE_DSQ_BASE + (llc & (MAX_LLCS - 1));
+ }
+ 
+-/* Physical locality, independent of the pool layout and g89 toggle. */
++/* Physical locality, independent of the pool layout. */
+ static __always_inline bool cake_cross_llc(s32 from, s32 to)
+ {
+ 	u32 a = (u32)from, b = (u32)to;
+@@ -1377,7 +1412,7 @@ static __always_inline u64 cake_smt_expand(u64 seats)
+ 		       ((seats & cake_smt_right) >> shift);
+ 
+ 	for (i = 0; i < 64 && seats; i++) {
+-		u32 c = (u32)__builtin_ctzll(seats);
++		u32 c = cake_ctz64(seats);
+ 		s32 sib = cpu_sibling[c & (MAX_CPUS - 1)];
+ 
+ 		if (sib >= 0 && sib < 64)
+@@ -1410,7 +1445,7 @@ static __always_inline s32 cake_pick_cold(u64 w, u64 cores, u64 seats, u64 noisy
+ 		best = w;
+ 	if (best & ~seats)
+ 		best &= ~seats;
+-	return (s32)__builtin_ctzll(cake_rank_tier(cake_prefer_irq_clean(best, noisy)));
++	return (s32)cake_ctz64(cake_rank_tier(cake_prefer_irq_clean(best, noisy)));
+ }
+ 
+ /* PROBE hold attribution -- not for scoring. */
+@@ -1765,7 +1800,7 @@ static __noinline bool cake_system_serial(u32 wc)
+ 	u32 c = wc & (MAX_CPUS - 1);
+ 
+ 	if (cake_one_word)
+-		return (u32)__builtin_popcountll(cake_idle_word() & cpu_llc_word[c]) * 4 >=
++		return cake_popcnt64(cake_idle_word() & cpu_llc_word[c]) * 4 >=
+ 		       cpu_llc_online3[c];
+ 	return (u32)cake_idle_nr * 4 >= nr_cpu_online3;
+ }
+@@ -1942,6 +1977,7 @@ static __noinline s32 cake_select_undecided(struct task_struct *p __arg_trusted,
+ s32 BPF_STRUCT_OPS(cake_select_cpu, struct task_struct *p, s32 prev_cpu,
+ 		   u64 wake_flags)
+ {
++	bool device_wake = cake_signal_wake(p);
+ 	bool stage;
+ 	/* A busy/ineligible home is not a warm-half candidate. */
+ 	bool home_askable = false, seat_blocked;
+@@ -1961,12 +1997,12 @@ s32 BPF_STRUCT_OPS(cake_select_cpu, struct task_struct *p, s32 prev_cpu,
+ 		bool serial = ((wr->hint >> CAKE_HINT_CONF_SHIFT) &
+ 			       CAKE_HINT_CONF_MAX) >= CAKE_HINT_CONF_MAX;
+ 
+-		if (!(wr->hint & CAKE_HINT_WOKE))
++		if (!device_wake && !(wr->hint & CAKE_HINT_WOKE))
+ 			wr->hint |= CAKE_HINT_WOKE;
+ 
+ 		/* No core-contended veto here: a handoff sibling is usually another transient
+ 		 * pair, and the veto exiled mutex pairs from co-location. */
+-		if (serial && !(wake_flags & CAKE_WAKE_SYNC) &&
++		if (!device_wake && serial && !(wake_flags & CAKE_WAKE_SYNC) &&
+ 		    !cake_cpu_irq_bad((s32)wc) &&
+ 		    cake_allowed(p, (s32)wc) &&
+ 		    cake_system_serial_tried(wc) &&
+@@ -2558,6 +2594,32 @@ static __noinline bool cake_ring_walk(u32 ucpu)
+ 	u64 m = 0;
+ 	u32 i;
+ 
++	if (cake_native_ring && cake_one_word) {
++		u64 pending = cake.qmask[0] & cpu_llc_word[ucpu & (MAX_CPUS - 1)];
++		s32 sibling = cpu_sibling[ucpu & (MAX_CPUS - 1)];
++
++		pending &= ~(1ULL << (ucpu & 63));
++		if (sibling >= 0 && sibling < 64) {
++			u64 bit = 1ULL << ((u32)sibling & 63);
++
++			if (pending & bit) {
++				pending &= ~bit;
++				if (cake_probe_steal(ucpu, (u32)sibling) &&
++				    cake_move_to_local((u64)sibling))
++					return true;
++			}
++		}
++		pending = cake_ring_rotate(pending, ucpu);
++		for (i = 0; i < 64 && pending; i++) {
++			u32 idx = cake_ring_next(pending, ucpu);
++
++			pending &= pending - 1;
++			if (cake_probe_steal(ucpu, idx) && cake_move_to_local((u64)idx))
++				return true;
++		}
++		return false;
++	}
++
+ 	if (CCD_STEAL_POLICY > 0 && steal_order_live && ucpu < STEAL_SPAN) {
+ 		/* One precomputed locality order avoids verifier-multiplying
+ 		 * scan loops. */
+@@ -2957,6 +3019,9 @@ static __always_inline u32 cake_release_band(u64 ns)
+ 	u64 v = ns >> CAKE_RELEASE_BAND_SHIFT;
+ 	u32 b = 0;
+ 
++	if (cake_native_hist)
++		return cake_band_native(ns, CAKE_RELEASE_BAND_SHIFT, CAKE_RELEASE_BANDS);
++
+ 	while (b < CAKE_RELEASE_BANDS - 1 && (v >> (b + 1)))
+ 		b++;
+ 	return b;
+@@ -2975,6 +3040,9 @@ static __always_inline u32 cake_hist_band(u64 ns)
+ 	u64 v = ns >> CAKE_HIST_SHIFT;
+ 	u32 b = 0;
+ 
++	if (cake_native_hist)
++		return cake_band_native(ns, CAKE_HIST_SHIFT, CAKE_HIST_BANDS);
++
+ 	while (b < CAKE_HIST_BANDS - 1 && (v >> (b + 1)))
+ 		b++;
+ 	return b;
+@@ -3139,13 +3207,32 @@ static __always_inline u64 cake_frontier_advance(u64 vtime, u32 cpu, u64 now)
+ }
+ 
+ /* ops.running: stamp the per-CPU run start and advance the vtime frontier within its wall-rate band. */
++/* The rq clock of @cpu as its last update left it, the value scx_bpf_now()
++ * returns while it is valid. ops.running sees it invalid after a skipped
++ * update or a balance unpin, where the kfunc reads the TSC; the cached value
++ * is then at most that update old. */
++static __always_inline u64 cake_running_clock(u32 cpu)
++{
++	struct rq *rq;
++	u64 clock;
++
++	if (!bpf_core_field_exists(struct rq, scx.clock))
++		return cake_now_rq(CAKE_SITE_KT_RUNNING);
++	cake_stat_inc2(CAKE_SITE_KT, CAKE_SITE_KT_RUNNING);
++	rq = bpf_per_cpu_ptr(&runqueues, cpu);
++	clock = rq ? rq->scx.clock : 0;
++	return clock ? clock : scx_bpf_now();
++}
++
+ void BPF_STRUCT_OPS(cake_running, struct task_struct *p)
+ {
+ 	/* The task's CPU: a remote property change fires this op from the caller's
+ 	 * CPU, whose smp id charged a foreign slot. */
+ 	u32 cpu = p->thread_info.cpu;
+ 	struct cake_run_slot *run = &cake.run[cpu & (MAX_CPUS - 1)];
+-	u64 now = cake_now_rq(CAKE_SITE_KT_RUNNING);
++	u64 now = cake_running_clock(cpu);
++
++	cake_signal_running(p, cpu);
+ 
+ 	/* First: the grant below and every later reader want the untagged slice. */
+ 	cake_pool_seen(p);
+@@ -3361,7 +3448,7 @@ s32 BPF_STRUCT_OPS_SLEEPABLE(cake_init)
+ 		if (ret)
+ 			return ret;
+ 	}
+-	/* One wake pool per LLC; a one-LLC host, or g89=0, uses pool 0. */
++	/* One wake pool per LLC; a one-LLC host uses pool 0. */
+ 	bpf_for(i, 0, MAX_LLCS) {
+ 		if ((u32)i >= nr_llcs)
+ 			break;
+diff --git a/scheds/rust/scx_cake/src/bpf/scalar-experiments.bpf.h b/scheds/rust/scx_cake/src/bpf/scalar-experiments.bpf.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..16ce5bc3f9361bb946f72ae495f2ddfbcc0e82ea
+--- /dev/null
++++ b/scheds/rust/scx_cake/src/bpf/scalar-experiments.bpf.h
+@@ -0,0 +1,24 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef __CAKE_SCALAR_EXPERIMENTS_BPF_H
++#define __CAKE_SCALAR_EXPERIMENTS_BPF_H
++
++static __always_inline u64 cake_ring_rotate(u64 marks, u32 cpu)
++{
++	u32 shift = (cpu + 1) & 63;
++
++	return (marks >> shift) | (marks << ((64 - shift) & 63));
++}
++
++static __always_inline u32 cake_ring_next(u64 rotated, u32 cpu)
++{
++	return (cake_ctz64(rotated) + cpu + 1) & 63;
++}
++
++static __always_inline u32 cake_band_native(u64 ns, u32 shift, u32 bands)
++{
++	u32 band = 63 - cake_clz64((ns >> shift) | 1);
++
++	return band < bands ? band : bands - 1;
++}
++
++#endif /* __CAKE_SCALAR_EXPERIMENTS_BPF_H */
+diff --git a/scheds/rust/scx_cake/src/bpf/wake-signals.bpf.h b/scheds/rust/scx_cake/src/bpf/wake-signals.bpf.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..b31af71de1d467fbd27ec6d887194953c355e069
+--- /dev/null
++++ b/scheds/rust/scx_cake/src/bpf/wake-signals.bpf.h
+@@ -0,0 +1,162 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef CAKE_WAKE_SIGNALS_BPF_H
++#define CAKE_WAKE_SIGNALS_BPF_H
++
++extern u64 scx_bpf_task_wake_signal_v1(struct task_struct *p) __weak __ksym;
++extern u64 scx_bpf_cpu_irq_ns_v1(s32 cpu) __weak __ksym;
++
++const volatile bool cake_signals_enabled;
++const volatile bool cake_signals_policy;
++const volatile bool cake_signals_observe;
++
++#define CAKE_SIGNAL_TTL_NS 2000000ULL
++#define CAKE_IRQ_SAMPLE_NS 250000ULL
++#define CAKE_IRQ_WINDOW_NS 4000000ULL
++#define CAKE_SIGNAL_STATS 79
++
++struct cake_signal_counters {
++	u64 values[CAKE_SIGNAL_STATS];
++};
++
++struct {
++	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
++	__uint(max_entries, 1);
++	__type(key, u32);
++	__type(value, struct cake_signal_counters);
++} cake_signal_stats SEC(".maps");
++
++struct cake_irq_sample {
++	u64 stamp;
++	u64 total;
++	u64 pressure;
++	u64 pad[STATE_SLOT_WORDS - 3];
++};
++
++struct cake_irq_sample cake_irq_samples[MAX_CPUS]
++	__attribute__((aligned(STATE_SLOT_BYTES)));
++
++static __always_inline struct cake_signal_counters *cake_signal_counters(void)
++{
++	u32 key = 0;
++
++	return bpf_map_lookup_elem(&cake_signal_stats, &key);
++}
++
++/* Common MONOTONIC time is required for remote wake and IRQ sample ages. */
++static __always_inline bool cake_signal_fresh(u64 token, u64 now)
++{
++	u64 stamp = token & ~3ULL;
++
++	return (token & 3) && now >= stamp && now - stamp <= CAKE_SIGNAL_TTL_NS;
++}
++
++static __always_inline bool cake_signal_wake(struct task_struct *p)
++{
++	u64 token, now = 0;
++	bool fresh = false;
++
++	if (!cake_signals_enabled)
++		return false;
++	token = scx_bpf_task_wake_signal_v1(p);
++	if (token) {
++		now = bpf_ktime_get_ns();
++		fresh = cake_signal_fresh(token, now);
++	}
++	if (cake_signals_observe) {
++		struct cake_signal_counters *s = cake_signal_counters();
++
++		if (s) {
++			if (token & 1)
++				s->values[0]++;
++			if (token & 2)
++				s->values[1]++;
++			if (!token)
++				s->values[2]++;
++			if (token && !fresh)
++				s->values[now < (token & ~3ULL) ? 7 : 6]++;
++		}
++	}
++	return cake_signals_policy && fresh;
++}
++
++/* Only the owning CPU updates its IRQ sample; remote property callbacks skip it. */
++static __always_inline void cake_signal_running(struct task_struct *p, u32 cpu)
++{
++	struct cake_signal_counters *s = NULL;
++	struct cake_irq_sample *sample;
++	u64 now, total, elapsed, delta;
++
++	if (!cake_signals_enabled)
++		return;
++	now = bpf_ktime_get_ns();
++	if (cake_signals_observe) {
++		u64 token = scx_bpf_task_wake_signal_v1(p);
++
++		s = cake_signal_counters();
++		if (s) {
++			if (!token)
++				s->values[5]++;
++			if (token && now >= (token & ~3ULL)) {
++				u64 age = now - (token & ~3ULL);
++				u32 bucket = age ? 63 - __builtin_clzll(age) : 0;
++
++				if (bucket > 31)
++					bucket = 31;
++#pragma unroll
++				for (int i = 0; i < 2; i++) {
++					if (!(token & (1ULL << i)))
++						continue;
++					s->values[3 + i]++;
++					s->values[11 + i] += age;
++					if (age > s->values[13 + i])
++						s->values[13 + i] = age;
++					s->values[15 + i * 32 + bucket]++;
++				}
++			} else if (token) {
++				s->values[7]++;
++			}
++		}
++	}
++	if (cpu != bpf_get_smp_processor_id())
++		return;
++	sample = &cake_irq_samples[cpu & (MAX_CPUS - 1)];
++	elapsed = now - sample->stamp;
++	if (sample->stamp && elapsed < CAKE_IRQ_SAMPLE_NS)
++		return;
++	total = scx_bpf_cpu_irq_ns_v1((s32)cpu);
++	if (s)
++		s->values[8]++;
++	if (total == ~0ULL) {
++		sample->stamp = now;
++		sample->total = ~0ULL;
++		sample->pressure = 0;
++		if (s)
++			s->values[9]++;
++		return;
++	}
++	delta = total - sample->total;
++	if (!sample->stamp || elapsed > CAKE_IRQ_WINDOW_NS || total < sample->total ||
++	    delta > elapsed) {
++		sample->pressure = 0;
++	} else {
++		bool hot = delta > (elapsed >> 3);
++
++		sample->pressure = (now & ~3ULL) | (hot ? 1 : 2);
++		if (s && hot)
++			s->values[10]++;
++	}
++	sample->stamp = now;
++	sample->total = total;
++}
++
++static __always_inline bool cake_signal_irq_hot(u32 cpu)
++{
++	u64 pressure;
++
++	if (!cake_signals_policy)
++		return false;
++	pressure = READ_ONCE(cake_irq_samples[cpu & (MAX_CPUS - 1)].pressure);
++	return (pressure & 1) && cake_signal_fresh(pressure, bpf_ktime_get_ns());
++}
++
++#endif
+diff --git a/scheds/rust/scx_cake/src/inspect_bpf.rs b/scheds/rust/scx_cake/src/inspect_bpf.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..9818e284103e63c57acf1504a1b412002576e9b9
+--- /dev/null
++++ b/scheds/rust/scx_cake/src/inspect_bpf.rs
+@@ -0,0 +1,73 @@
++// SPDX-License-Identifier: GPL-2.0
++
++use anyhow::{Context, Result};
++use libbpf_rs::{AsRawLibbpf, libbpf_sys};
++use std::fmt::Write;
++use std::path::Path;
++
++pub fn dump(object: &libbpf_rs::Object, path: &Path) -> Result<()> {
++    std::fs::create_dir(path).context("inspection output must be a new directory")?;
++    let mut manifest = String::from("name\tid\ttag\tbpf_bytes\tjit_bytes\tjit_visible\n");
++    for prog in object.progs() {
++        // Disabled autoload programs have no descriptor.
++        let fd = unsafe { libbpf_sys::bpf_program__fd(prog.as_libbpf_object().as_ptr()) };
++        if fd < 0 {
++            continue;
++        }
++        let mut sizes = libbpf_sys::bpf_prog_info::default();
++        query(fd, &mut sizes)?;
++        let mut bpf = vec![0u8; sizes.xlated_prog_len as usize];
++        let mut jit = vec![0u8; sizes.jited_prog_len as usize];
++        let mut info = libbpf_sys::bpf_prog_info {
++            xlated_prog_len: sizes.xlated_prog_len,
++            jited_prog_len: sizes.jited_prog_len,
++            xlated_prog_insns: bpf.as_mut_ptr() as u64,
++            jited_prog_insns: jit.as_mut_ptr() as u64,
++            ..Default::default()
++        };
++        query(fd, &mut info)?;
++        let name = prog.name().to_str().context("non-UTF8 BPF name")?;
++        anyhow::ensure!(name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'));
++        let bpf_visible = info.xlated_prog_insns != 0 && info.xlated_prog_len != 0;
++        let jit_visible = info.jited_prog_insns != 0 && info.jited_prog_len != 0;
++        if bpf_visible {
++            std::fs::write(
++                path.join(format!("{name}.bpf.bin")),
++                &bpf[..info.xlated_prog_len as usize],
++            )?;
++        }
++        if jit_visible {
++            std::fs::write(
++                path.join(format!("{name}.jit.bin")),
++                &jit[..info.jited_prog_len as usize],
++            )?;
++        }
++        let tag: String = info.tag.iter().map(|b| format!("{b:02x}")).collect();
++        writeln!(
++            manifest,
++            "{name}\t{}\t{tag}\t{}\t{}\t{jit_visible}",
++            info.id,
++            if bpf_visible { info.xlated_prog_len } else { 0 },
++            info.jited_prog_len
++        )?;
++    }
++    std::fs::write(path.join("programs.tsv"), manifest)?;
++    Ok(())
++}
++
++fn query(fd: i32, info: &mut libbpf_sys::bpf_prog_info) -> Result<()> {
++    let mut len = std::mem::size_of_val(info) as u32;
++    let rc = unsafe {
++        libbpf_sys::bpf_obj_get_info_by_fd(
++            fd,
++            (info as *mut libbpf_sys::bpf_prog_info).cast(),
++            &mut len,
++        )
++    };
++    anyhow::ensure!(
++        rc == 0,
++        "BPF instruction query failed: {}",
++        std::io::Error::last_os_error()
++    );
++    Ok(())
++}
+diff --git a/scheds/rust/scx_cake/src/main.rs b/scheds/rust/scx_cake/src/main.rs
+index 19424ca882af8da5fcad0ef5452aee5a438d6cf3..a81694aac3f31a5cfbba3cf0e1aca0f3cd936b2f 100644
+--- a/scheds/rust/scx_cake/src/main.rs
++++ b/scheds/rust/scx_cake/src/main.rs
+@@ -8,6 +8,7 @@
+ mod bpf_skel;
+ mod build_identity;
+ mod core_performance;
++mod inspect_bpf;
+ pub use bpf_skel::*;
+ pub mod bpf_intf;
+ pub use bpf_intf::*;
+@@ -57,6 +58,34 @@ fn configure_acquire_census(skel: &mut OpenBpfSkel<'_>, probe_on: bool) {
+ #[derive(Debug, PartialEq, Eq, Parser)]
+ #[command(after_help = toggle_help())]
+ struct Opts {
++    /// Experimental device wake/IRQ signals: off, observe, or on. Missing support falls back.
++    #[clap(long, value_enum, default_value_t = KernelSignals::Off)]
++    kernel_signals: KernelSignals,
++
++    /// Save device wake-to-running histograms and IRQ sample counters as CSV at exit.
++    #[clap(long, value_name = "NEW_CSV")]
++    signal_report: Option<std::path::PathBuf>,
++
++    /// Require native CTZ/POPCNT. By default, detect support at startup and fall back.
++    #[clap(long)]
++    native_bitops: bool,
++
++    /// Use portable CTZ/POPCNT even when the CPU and kernel support native operations.
++    #[clap(long, conflicts_with_all = ["native_bitops", "native_ring"])]
++    portable_bitops: bool,
++
++    /// Load and export BPF instructions to a new directory, then exit without attaching.
++    #[clap(long, value_name = "NEW_DIRECTORY")]
++    inspect_bpf: Option<std::path::PathBuf>,
++
++    /// Research: enumerate marked queues with native CTZ on compatible one-LLC hosts.
++    #[clap(long)]
++    native_ring: bool,
++
++    /// Research: use native CLZ for probe histogram buckets.
++    #[clap(long)]
++    native_hist: bool,
++
+     /// Print startup core topology and platform performance preferences without attaching.
+     #[clap(long)]
+     print_topology: bool,
+@@ -88,6 +117,105 @@ struct Opts {
+ /// --help prints this table.
+ const TOGGLES: [(&str, &str, u8); 1] = [("probe", "diagnostics", 0)];
+ 
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
++enum KernelSignals {
++    #[default]
++    Off,
++    Observe,
++    On,
++}
++
++fn signal_mode(requested: KernelSignals, supported: bool) -> (bool, bool) {
++    (
++        supported && requested != KernelSignals::Off,
++        supported && requested == KernelSignals::On,
++    )
++}
++
++fn signal_counter_names() -> Vec<String> {
++    let mut names: Vec<String> = [
++        "select_input",
++        "select_fence",
++        "select_unknown",
++        "running_input",
++        "running_fence",
++        "running_unknown",
++        "expired_select",
++        "clock_error",
++        "irq_samples",
++        "irq_unknown",
++        "irq_hot_samples",
++        "input_wake_ns_sum",
++        "fence_wake_ns_sum",
++        "input_wake_ns_max",
++        "fence_wake_ns_max",
++    ]
++    .into_iter()
++    .map(String::from)
++    .collect();
++    for cause in ["input", "fence"] {
++        for bucket in 0..32 {
++            names.push(format!("{cause}_wake_ns_log2_{bucket}"));
++        }
++    }
++    names
++}
++
++fn aggregate_signal_counters(per_cpu: &[Vec<u8>]) -> Result<Vec<u64>> {
++    let mut result = vec![0u64; signal_counter_names().len()];
++    for values in per_cpu {
++        anyhow::ensure!(
++            values.len() == result.len() * 8,
++            "invalid signal counter layout"
++        );
++        for (i, bytes) in values.chunks_exact(8).enumerate() {
++            let value = u64::from_ne_bytes(bytes.try_into()?);
++            if i == 13 || i == 14 {
++                result[i] = result[i].max(value);
++            } else {
++                result[i] = result[i].saturating_add(value);
++            }
++        }
++    }
++    Ok(result)
++}
++
++#[cfg(test)]
++mod signal_tests {
++    use super::*;
++
++    #[test]
++    fn modes_preserve_fallback_and_observation_does_not_enable_policy() {
++        for mode in [
++            KernelSignals::Off,
++            KernelSignals::Observe,
++            KernelSignals::On,
++        ] {
++            assert_eq!(signal_mode(mode, false), (false, false));
++        }
++        assert_eq!(signal_mode(KernelSignals::Off, true), (false, false));
++        assert_eq!(signal_mode(KernelSignals::Observe, true), (true, false));
++        assert_eq!(signal_mode(KernelSignals::On, true), (true, true));
++        assert!(parse_opts_lenient(["cake", "--kernel-signals", "invalid"]).is_err());
++    }
++
++    #[test]
++    fn counters_sum_counts_but_merge_latency_maxima_by_maximum() {
++        let mut a = vec![1u64; 79];
++        let mut b = vec![2u64; 79];
++        a[13] = 900;
++        b[13] = 200;
++        a[14] = 100;
++        b[14] = 800;
++        let encode = |values: Vec<u64>| values.into_iter().flat_map(u64::to_ne_bytes).collect();
++        let got = aggregate_signal_counters(&[encode(a), encode(b)]).unwrap();
++        assert_eq!(got[0], 3);
++        assert_eq!((got[13], got[14]), (900, 800));
++        assert_eq!(got[78], 3);
++        assert!(aggregate_signal_counters(&[vec![0; 8]]).is_err());
++    }
++}
++
+ fn toggle_help() -> String {
+     let mut s = String::from("Toggles (--toggle NAME=0|1, repeatable):\n");
+     for (name, what, dfl) in TOGGLES {
+@@ -96,6 +224,55 @@ fn toggle_help() -> String {
+     s
+ }
+ 
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++struct NativeBitops {
++    ctz: bool,
++    popcnt: bool,
++}
++
++impl NativeBitops {
++    fn detect() -> Self {
++        #[cfg(target_arch = "x86_64")]
++        {
++            let kernel_supports = |name| match compat::ksym_exists(name) {
++                Ok(found) => found,
++                Err(err) => {
++                    warn!("Cannot detect {name}; using portable operation: {err:#}");
++                    false
++                }
++            };
++            Self {
++                ctz: std::is_x86_feature_detected!("bmi1") && kernel_supports("bpf_ctz64"),
++                popcnt: std::is_x86_feature_detected!("popcnt") && kernel_supports("bpf_popcnt64"),
++            }
++        }
++        #[cfg(not(target_arch = "x86_64"))]
++        Self::default()
++    }
++
++    fn select(self, opts: &Opts) -> Result<Self> {
++        if opts.portable_bitops {
++            return Ok(Self::default());
++        }
++        let requested = Self {
++            ctz: opts.native_bitops || opts.native_ring,
++            popcnt: opts.native_bitops,
++        };
++        if !requested.ctz && !requested.popcnt {
++            return Ok(self);
++        }
++        anyhow::ensure!(
++            !requested.ctz || self.ctz,
++            "native CTZ requires x86_64 BMI1 and bpf_ctz64 in the running kernel"
++        );
++        anyhow::ensure!(
++            !requested.popcnt || self.popcnt,
++            "native POPCNT requires x86_64 POPCNT and bpf_popcnt64 in the running kernel"
++        );
++        Ok(requested)
++    }
++}
++
+ /// Retain complete pairs only, ordered for entry-first teardown.
+ fn attach_irq_pair<L>(
+     leave: impl FnOnce() -> Result<L>,
+@@ -121,12 +298,44 @@ struct Scheduler<'a> {
+     /// Multi-LLC hosts: the die each V-cache mode prefers, and the mode last seen.
+     pref_die: Option<PreferredDie>,
+     x3d_mode: Option<String>,
++    signal_report: Option<std::fs::File>,
++    signals_enabled: bool,
+ }
+ 
+ impl<'a> Scheduler<'a> {
+-    fn init(opts: &Opts, open_object: &'a mut MaybeUninit<OpenObject>) -> Result<Self> {
++    fn init(opts: &Opts, open_object: &'a mut MaybeUninit<OpenObject>) -> Result<Option<Self>> {
+         try_set_rlimit_infinity();
+ 
++        anyhow::ensure!(
++            opts.signal_report.is_none() || opts.kernel_signals != KernelSignals::Off,
++            "--signal-report requires --kernel-signals observe or on"
++        );
++        let signal_report = opts
++            .signal_report
++            .as_ref()
++            .map(|path| {
++                std::fs::OpenOptions::new()
++                    .write(true)
++                    .create_new(true)
++                    .open(path)
++                    .with_context(|| format!("create signal report {}", path.display()))
++            })
++            .transpose()?;
++        let signal_flag = compat::read_enum("scx_ops_flags", "SCX_OPS_WAKE_SIGNAL").unwrap_or(0);
++        let signal_support = signal_flag != 0
++            && compat::ksym_exists("scx_bpf_task_wake_signal_v1").unwrap_or(false)
++            && compat::ksym_exists("scx_bpf_cpu_irq_ns_v1").unwrap_or(false);
++        let (signals_enabled, signals_policy) = signal_mode(opts.kernel_signals, signal_support);
++        let signals_observe = signals_enabled
++            && (opts.kernel_signals == KernelSignals::Observe || opts.signal_report.is_some());
++        info!(
++            "Kernel signals requested={:?} available={signal_support} enabled={signals_enabled} policy={signals_policy} counters={signals_observe}",
++            opts.kernel_signals
++        );
++        if opts.kernel_signals != KernelSignals::Off && !signal_support {
++            warn!("Kernel signal v1 support absent; using existing Cake policy");
++        }
++
+         // The startup banner is cake's only telemetry, one-shot: version, machine
+         // shape, compiled constants, and the fast paths the running kernel provides.
+         let topo = Topology::new().context("failed to read topology")?;
+@@ -137,6 +346,28 @@ impl<'a> Scheduler<'a> {
+         let queued_wakeup = *compat::SCX_OPS_ALLOW_QUEUED_WAKEUP != 0;
+         let dsq_peek = compat::ksym_exists("scx_bpf_dsq_peek").unwrap_or(false);
+ 
++        let NativeBitops {
++            ctz: native_ctz,
++            popcnt: native_popcnt,
++        } = NativeBitops::detect().select(opts)?;
++        if opts.native_hist {
++            #[cfg(not(target_arch = "x86_64"))]
++            anyhow::bail!("--native-hist currently requires x86_64");
++            #[cfg(target_arch = "x86_64")]
++            anyhow::ensure!(
++                std::is_x86_feature_detected!("lzcnt"),
++                "--native-hist requires LZCNT"
++            );
++            anyhow::ensure!(
++                compat::ksym_exists("bpf_clz64")?,
++                "--native-hist requires bpf_clz64"
++            );
++        }
++        info!("Native hist {}", opts.native_hist);
++        info!("Native bitops {}", native_ctz && native_popcnt);
++        info!("Native CTZ {native_ctz}");
++        info!("Native POPCNT {native_popcnt}");
++
+         info!(
+             "{} {}",
+             SCHEDULER_NAME,
+@@ -193,6 +424,15 @@ impl<'a> Scheduler<'a> {
+             .as_mut()
+             .context("BPF rodata unavailable for CPU topology")?;
+ 
++        rodata.cake_native_ctz = native_ctz;
++        rodata.cake_native_popcnt = native_popcnt;
++        rodata.cake_native_clz = opts.native_hist;
++        rodata.cake_native_ring = opts.native_ring;
++        rodata.cake_native_hist = opts.native_hist;
++        rodata.cake_signals_enabled = signals_enabled;
++        rodata.cake_signals_policy = signals_policy;
++        rodata.cake_signals_observe = signals_observe;
++
+         // The CPU id span the steal ring and neighbour probe scan: rodata, so the
+         // verifier folds it. It must cover the kernel's nr_cpu_ids, which counts
+         // POSSIBLE CPUs; the topology lists present ones only. ops.init refuses less.
+@@ -552,7 +792,46 @@ impl<'a> Scheduler<'a> {
+             }
+         }
+ 
++        if opts.native_ring {
++            let ro = skel
++                .maps
++                .rodata_data
++                .as_ref()
++                .context("BPF rodata unavailable")?;
++            anyhow::ensure!(
++                ro.cake_one_word != 0 && ro.nr_llcs == 1 && ro.steal_order_live != 0,
++                "--native-ring requires one word, one LLC and a verified steal order"
++            );
++            let span = bpf_intf::consts_STEAL_SPAN as usize;
++            for src in topo.all_cpus.keys().copied() {
++                let sibling = ro.cpu_sibling[src];
++                let mut expected: Vec<_> = topo
++                    .all_cpus
++                    .keys()
++                    .copied()
++                    .filter(|dst| *dst != src)
++                    .collect();
++                expected.sort_by_key(|dst| {
++                    (
++                        i32::try_from(*dst).ok() != Some(sibling),
++                        (dst + 64 - src) & 63,
++                    )
++                });
++                anyhow::ensure!(
++                    expected
++                        .iter()
++                        .enumerate()
++                        .all(|(i, dst)| ro.cpu_steal_order[src * span + i] as usize == *dst),
++                    "--native-ring cannot preserve the steal order for CPU {src}"
++                );
++            }
++        }
++        info!("Native ring {}", opts.native_ring);
++
+         configure_acquire_census(&mut skel, probe_on);
++        if signals_enabled {
++            skel.struct_ops.cake_ops_mut().flags |= signal_flag;
++        }
+         if idle_exit_max_ns == 0 {
+             skel.progs.cake_cpu_idle.set_autoload(false);
+         }
+@@ -560,6 +839,15 @@ impl<'a> Scheduler<'a> {
+         // Load and attach.
+         let mut skel = scx_ops_load!(skel, cake_ops, uei)?;
+ 
++        if let Some(path) = &opts.inspect_bpf {
++            inspect_bpf::dump(libbpf_rs::skel::Skel::object(&skel), path)?;
++            info!(
++                "BPF inspection saved to {}; nothing attached",
++                path.display()
++            );
++            return Ok(None);
++        }
++
+         // Handler-edge tracepoints feed the in-handler depth. The exit hook of each
+         // pair attaches FIRST (an entry counted before its exit hook exists leaves
+         // that CPU mid-handler for the run); a pair whose exit fails skips its entry.
+@@ -634,7 +922,7 @@ impl<'a> Scheduler<'a> {
+             warn!("post-attach capability drop failed: {err}");
+         }
+ 
+-        Ok(Self {
++        Ok(Some(Self {
+             skel,
+             struct_ops,
+             _irq_links: irq_links,
+@@ -643,7 +931,9 @@ impl<'a> Scheduler<'a> {
+             sinks: SinkMonitor::new(*NR_CPU_IDS),
+             pref_die,
+             x3d_mode,
+-        })
++            signal_report,
++            signals_enabled,
++        }))
+     }
+ 
+     fn exited(&mut self) -> bool {
+@@ -994,6 +1284,26 @@ impl<'a> Scheduler<'a> {
+         }
+ 
+         self.struct_ops.take();
++        if let Some(mut report) = self.signal_report.take() {
++            use std::io::Write;
++            let values = self
++                .skel
++                .maps
++                .cake_signal_stats
++                .lookup_percpu(&0u32.to_ne_bytes(), MapFlags::ANY)?
++                .context("signal counter map missing")?;
++            let counters = aggregate_signal_counters(&values)?;
++            writeln!(report, "# enabled={}", self.signals_enabled)?;
++            writeln!(
++                report,
++                "# clock=CLOCK_MONOTONIC; origin=accepted_blocked_wake; end=ops.running"
++            )?;
++            writeln!(report, "metric,value")?;
++            for (name, value) in signal_counter_names().iter().zip(counters) {
++                writeln!(report, "{name},{value}")?;
++            }
++            report.flush()?;
++        }
+         info!("Stopped");
+         uei_report!(&self.skel, uei)
+     }
+@@ -1680,7 +1990,9 @@ fn main() -> Result<()> {
+     .context("Error setting Ctrl-C handler")?;
+ 
+     let mut open_object = MaybeUninit::uninit();
+-    let mut sched = Scheduler::init(&opts, &mut open_object)?;
++    let Some(mut sched) = Scheduler::init(&opts, &mut open_object)? else {
++        return Ok(());
++    };
+ 
+     if sched.run(shutdown.clone())?.should_restart() {
+         info!("Restart requested by the kernel — re-executing");
+@@ -1772,6 +2084,90 @@ impl LlcLayout {
+ 
+ #[cfg(test)]
+ mod tests {
++    #[test]
++    fn bitops_and_inspection_flags_are_recognized() {
++        let (defaults, dropped) = super::parse_opts_lenient(["scx_cake"]).unwrap();
++        assert!(dropped.is_empty());
++        assert!(!defaults.native_bitops && defaults.inspect_bpf.is_none());
++        let (opts, dropped) = super::parse_opts_lenient([
++            "scx_cake",
++            "--native-bitops",
++            "--inspect-bpf",
++            "inspection-output",
++        ])
++        .unwrap();
++        assert!(dropped.is_empty());
++        assert!(opts.native_bitops);
++        assert_eq!(
++            opts.inspect_bpf.unwrap(),
++            std::path::PathBuf::from("inspection-output")
++        );
++    }
++
++    #[test]
++    fn automatic_bitops_follow_available_cpu_and_kernel_support() {
++        let (opts, _) = super::parse_opts_lenient(["scx_cake"]).unwrap();
++        assert!(!opts.native_ring && !opts.native_hist);
++        for ctz in [false, true] {
++            for popcnt in [false, true] {
++                let available = super::NativeBitops { ctz, popcnt };
++                assert_eq!(available.select(&opts).unwrap(), available);
++            }
++        }
++    }
++
++    #[test]
++    fn portable_override_disables_supported_bitops_and_rejects_native_flags() {
++        let (opts, dropped) = super::parse_opts_lenient(["scx_cake", "--portable-bitops"]).unwrap();
++        assert!(dropped.is_empty());
++        let available = super::NativeBitops {
++            ctz: true,
++            popcnt: true,
++        };
++        assert_eq!(
++            available.select(&opts).unwrap(),
++            super::NativeBitops::default()
++        );
++        for flag in ["--native-bitops", "--native-ring"] {
++            let err =
++                super::parse_opts_lenient(["scx_cake", "--portable-bitops", flag]).unwrap_err();
++            assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
++        }
++    }
++
++    #[test]
++    fn explicit_bitops_preserve_ablation_and_fail_when_unavailable() {
++        for (flag, requested) in [
++            (
++                "--native-bitops",
++                super::NativeBitops {
++                    ctz: true,
++                    popcnt: true,
++                },
++            ),
++            (
++                "--native-ring",
++                super::NativeBitops {
++                    ctz: true,
++                    popcnt: false,
++                },
++            ),
++        ] {
++            let (opts, _) = super::parse_opts_lenient(["scx_cake", flag]).unwrap();
++            for ctz in [false, true] {
++                for popcnt in [false, true] {
++                    let available = super::NativeBitops { ctz, popcnt };
++                    let result = available.select(&opts);
++                    if (!requested.ctz || ctz) && (!requested.popcnt || popcnt) {
++                        assert_eq!(result.unwrap(), requested);
++                    } else {
++                        assert!(result.is_err(), "{flag}: {available:?}");
++                    }
++                }
++            }
++        }
++    }
++
+     #[test]
+     fn legacy_profiles_use_default_options() {
+         let (defaults, _) = super::parse_opts_lenient(["scx_cake"]).unwrap();

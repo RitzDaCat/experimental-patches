@@ -1,0 +1,58 @@
+name: Test result
+description: Report improvements, no difference, regressions, or application/build-only checks.
+title: "[Result] "
+body:
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options:
+        - Improved
+        - No difference
+        - Regressed
+        - Application or build check only
+        - Could not activate or test the feature
+    validations:
+      required: true
+  - type: textarea
+    id: identity
+    attributes:
+      label: Patch and build identity
+      description: Collection commit, patch directory, series/filenames, local edits, upstream base, compiler/build command, active kernel/package and scheduler build hash/arguments.
+    validations:
+      required: true
+  - type: textarea
+    id: system
+    attributes:
+      label: System and workload
+      description: Distribution, uname -r, CPU, GPU/driver, desktop/session, display refresh/VRR, power settings, game/Proton version, resolution/settings and frame cap.
+    validations:
+      required: true
+  - type: textarea
+    id: activation
+    attributes:
+      label: Active feature evidence
+      description: Paste startup capability/state output for both arms. For KWin include opt-in and kernel-gate status; for wake signals include tagged-wake counts.
+    validations:
+      required: true
+  - type: textarea
+    id: method
+    attributes:
+      label: A/B method
+      description: Define A and B, scene, tools, warmup, run duration/count, order, background work and excluded runs. For build-only checks state exactly which gate ran.
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Results and raw data
+      description: Attach original logs and per-run summaries for both arms with units/spread. Include average FPS, lows and frame-time tails where measured. Say which metrics were not measured.
+    validations:
+      required: true
+  - type: textarea
+    id: regressions
+    attributes:
+      label: Stability and other regressions
+      description: Stutters, crashes, freezes, warnings, visual faults or audio dropouts, even when the main metric improves. State how long you tested and whether rollback worked.
+    validations:
+      required: true

@@ -1,0 +1,618 @@
+diff --git a/src/backends/drm/drm_commit_thread.cpp b/src/backends/drm/drm_commit_thread.cpp
+index deafa26..dd1177b 100644
+--- a/src/backends/drm/drm_commit_thread.cpp
++++ b/src/backends/drm/drm_commit_thread.cpp
+@@ -15,6 +15,7 @@
+ 
+ #include <ranges>
+ #include <span>
++#include <sys/utsname.h>
+ #include <thread>
+ 
+ using namespace std::chrono_literals;
+@@ -22,10 +23,26 @@ using namespace std::chrono_literals;
+ namespace KWin
+ {
+ 
++static bool latencyCaptureEnabled()
++{
++    if (qEnvironmentVariableIntValue("KWIN_LATENCY_CAPTURE") != 1) {
++        return false;
++    }
++    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    struct utsname systemInfo;
++    return !expectedRelease.isEmpty() && uname(&systemInfo) == 0 && expectedRelease == systemInfo.release;
++}
++
++static const bool s_latencyCaptureEnabled = latencyCaptureEnabled();
++
+ DrmCommitThread::DrmCommitThread(DrmGpu *gpu, const QString &name)
+     : m_gpu(gpu)
+     , m_targetPageflipTime(std::chrono::steady_clock::now())
+ {
++    if (s_latencyCaptureEnabled) {
++        m_latencyOutput.emplace(qPrintable("kwin drm timing " + name + ".csv"), std::ios::out);
++        *m_latencyOutput << "sequence,target_ns,submit_start_ns,submit_end_ns,ioctl_ns,queue_age_ns,queue_depth,readiness_retries,safety_margin_ns,base_safety_margin_ns,vrr,tearing,success,pageflip_timestamp_ns,callback_ns,callback_after_submit_ns\n";
++    }
+     if (!gpu->atomicModeSetting()) {
+         return;
+     }
+@@ -88,6 +105,9 @@ DrmCommitThread::DrmCommitThread(DrmGpu *gpu, const QString &name)
+             optimizeCommits(m_targetPageflipTime);
+             if (!m_commits.front()->isReadyFor(m_targetPageflipTime)) {
+                 // no commit is ready yet, reschedule
++                if (s_latencyCaptureEnabled) {
++                    m_readinessRetries++;
++                }
+                 if (m_vrr || m_tearing) {
+                     m_targetPageflipTime += 50us;
+                 } else {
+@@ -151,6 +171,8 @@ void DrmCommitThread::submit()
+ {
+     DrmAtomicCommit *commit = m_commits.front().get();
+     const auto vrr = commit->isVrr();
++    const auto telemetryStart = s_latencyCaptureEnabled ? std::chrono::steady_clock::now() : TimePoint{};
++    const uint64_t telemetryQueueDepth = m_commits.size();
+     const bool success = commit->commit();
+     if (success) {
+         m_vrr = vrr.value_or(m_vrr);
+@@ -162,6 +184,23 @@ void DrmCommitThread::submit()
+         // after we return from the commit ioctl, but we don't have any better
+         // way to know when it's done
+         m_lastCommitTime = std::chrono::steady_clock::now();
++        if (s_latencyCaptureEnabled) {
++            m_pendingCommitTelemetry = PendingCommitTelemetry{
++                .sequence = ++m_latencySequence,
++                .target = m_targetPageflipTime,
++                .submitStart = telemetryStart,
++                .submitEnd = m_lastCommitTime,
++                .queueAge = m_oldestQueuedAt == TimePoint{} ? 0ns : std::max(telemetryStart - m_oldestQueuedAt, 0ns),
++                .safetyMargin = m_safetyMargin,
++                .baseSafetyMargin = m_baseSafetyMargin,
++                .readinessRetries = m_readinessRetries,
++                .queueDepth = telemetryQueueDepth,
++                .vrr = vrr.value_or(m_vrr),
++                .tearing = commit->isTearing(),
++            };
++            m_readinessRetries = 0;
++            m_oldestQueuedAt = m_commits.empty() ? TimePoint{} : m_lastCommitTime;
++        }
+         // this is when we wanted to have completed the commit
+         const auto targetTimestamp = m_targetPageflipTime - m_baseSafetyMargin;
+         // this is how much safety we need to add or remove to achieve that next time
+@@ -179,6 +218,23 @@ void DrmCommitThread::submit()
+         m_additionalSafetyMargin = std::clamp(m_additionalSafetyMargin, 0ns, maximumReasonableMargin);
+         m_safetyMargin = m_baseSafetyMargin + m_additionalSafetyMargin;
+     } else {
++        if (s_latencyCaptureEnabled) {
++            const auto telemetryEnd = std::chrono::steady_clock::now();
++            writeCommitTelemetry(PendingCommitTelemetry{
++                                     .sequence = ++m_latencySequence,
++                                     .target = m_targetPageflipTime,
++                                     .submitStart = telemetryStart,
++                                     .submitEnd = telemetryEnd,
++                                     .queueAge = m_oldestQueuedAt == TimePoint{} ? 0ns : std::max(telemetryStart - m_oldestQueuedAt, 0ns),
++                                     .safetyMargin = m_safetyMargin,
++                                     .baseSafetyMargin = m_baseSafetyMargin,
++                                     .readinessRetries = m_readinessRetries,
++                                     .queueDepth = telemetryQueueDepth,
++                                     .vrr = vrr.value_or(m_vrr),
++                                     .tearing = commit->isTearing(),
++                                 },
++                                 false, 0ns, telemetryEnd);
++        }
+         if (m_commits.size() > 1) {
+             // the failure may have been because of the reordering of commits
+             // -> collapse all commits into one and try again with an already tested state
+@@ -196,6 +252,10 @@ void DrmCommitThread::submit()
+             m_commitsToDelete.push_back(std::move(commit));
+         }
+         m_commits.clear();
++        if (s_latencyCaptureEnabled) {
++            m_readinessRetries = 0;
++            m_oldestQueuedAt = TimePoint{};
++        }
+         qCWarning(KWIN_DRM) << "atomic commit failed:" << strerror(errno);
+     }
+     QMetaObject::invokeMethod(this, &DrmCommitThread::clearDroppedCommits, Qt::ConnectionType::QueuedConnection);
+@@ -331,6 +391,9 @@ DrmCommitThread::~DrmCommitThread()
+ void DrmCommitThread::addCommit(std::unique_ptr<DrmAtomicCommit> &&commit)
+ {
+     std::unique_lock lock(m_mutex);
++    if (s_latencyCaptureEnabled && m_commits.empty()) {
++        m_oldestQueuedAt = std::chrono::steady_clock::now();
++    }
+     m_commits.push_back(std::move(commit));
+     const auto now = std::chrono::steady_clock::now();
+     TimePoint newTarget;
+@@ -374,6 +437,11 @@ void DrmCommitThread::setModeInfo(uint32_t maximum, std::chrono::nanoseconds vbl
+ void DrmCommitThread::pageFlipped(std::chrono::nanoseconds timestamp)
+ {
+     std::unique_lock lock(m_mutex);
++    if (s_latencyCaptureEnabled && m_pendingCommitTelemetry) {
++        const auto callbackTime = std::chrono::steady_clock::now();
++        writeCommitTelemetry(*m_pendingCommitTelemetry, true, timestamp, callbackTime);
++        m_pendingCommitTelemetry.reset();
++    }
+     if (m_pageflipTimeoutDetected) {
+         qCCritical(KWIN_DRM, "Pageflip arrived after all, %lums after the commit", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_lastCommitTime).count());
+         m_pageflipTimeoutDetected = false;
+@@ -386,6 +454,22 @@ void DrmCommitThread::pageFlipped(std::chrono::nanoseconds timestamp)
+     }
+ }
+ 
++void DrmCommitThread::writeCommitTelemetry(const PendingCommitTelemetry &sample, bool success, std::chrono::nanoseconds pageflipTimestamp, TimePoint callbackTime)
++{
++    if (!m_latencyOutput) {
++        return;
++    }
++    const bool periodicSample = sample.sequence == 1 || sample.sequence % 16 == 0;
++    const bool exceptionalSample = !success || sample.readinessRetries != 0 || sample.queueDepth > 1;
++    if (!periodicSample && !exceptionalSample) {
++        return;
++    }
++    *m_latencyOutput << sample.sequence << "," << sample.target.time_since_epoch().count() << "," << sample.submitStart.time_since_epoch().count() << "," << sample.submitEnd.time_since_epoch().count()
++                     << "," << (sample.submitEnd - sample.submitStart).count() << "," << sample.queueAge.count() << "," << sample.queueDepth << "," << sample.readinessRetries
++                     << "," << sample.safetyMargin.count() << "," << sample.baseSafetyMargin.count() << "," << (sample.vrr ? 1 : 0) << "," << (sample.tearing ? 1 : 0) << "," << (success ? 1 : 0)
++                     << "," << pageflipTimestamp.count() << "," << callbackTime.time_since_epoch().count() << "," << std::max(callbackTime - sample.submitEnd, 0ns).count() << "\n";
++}
++
+ bool DrmCommitThread::pageflipsPending()
+ {
+     std::unique_lock lock(m_mutex);
+diff --git a/src/backends/drm/drm_commit_thread.h b/src/backends/drm/drm_commit_thread.h
+index 0ca394e..57cee6d 100644
+--- a/src/backends/drm/drm_commit_thread.h
++++ b/src/backends/drm/drm_commit_thread.h
+@@ -11,7 +11,9 @@
+ #include <QObject>
+ #include <QThread>
+ #include <condition_variable>
++#include <fstream>
+ #include <mutex>
++#include <optional>
+ #include <vector>
+ 
+ namespace KWin
+@@ -45,11 +47,26 @@ public:
+     std::chrono::nanoseconds safetyMargin() const;
+ 
+ private:
++    struct PendingCommitTelemetry {
++        uint64_t sequence = 0;
++        TimePoint target;
++        TimePoint submitStart;
++        TimePoint submitEnd;
++        std::chrono::nanoseconds queueAge = std::chrono::nanoseconds::zero();
++        std::chrono::nanoseconds safetyMargin = std::chrono::nanoseconds::zero();
++        std::chrono::nanoseconds baseSafetyMargin = std::chrono::nanoseconds::zero();
++        uint64_t readinessRetries = 0;
++        uint64_t queueDepth = 0;
++        bool vrr = false;
++        bool tearing = false;
++    };
++
+     void clearDroppedCommits();
+     TimePoint estimateNextVblank(TimePoint now) const;
+     void optimizeCommits(TimePoint pageflipTarget);
+     void submit();
+     void handlePing();
++    void writeCommitTelemetry(const PendingCommitTelemetry &sample, bool success, std::chrono::nanoseconds pageflipTimestamp, TimePoint callbackTime);
+ 
+     DrmGpu *const m_gpu;
+     std::unique_ptr<DrmCommit> m_committed;
+@@ -70,6 +87,11 @@ private:
+     std::chrono::nanoseconds m_additionalSafetyMargin = std::chrono::milliseconds(1);
+     bool m_ping = false;
+     bool m_pageflipTimeoutDetected = false;
++    std::optional<std::fstream> m_latencyOutput;
++    std::optional<PendingCommitTelemetry> m_pendingCommitTelemetry;
++    TimePoint m_oldestQueuedAt;
++    uint64_t m_latencySequence = 0;
++    uint64_t m_readinessRetries = 0;
+ };
+ 
+ }
+diff --git a/src/backends/libinput/connection.cpp b/src/backends/libinput/connection.cpp
+index 0baef8d..eb77854 100644
+--- a/src/backends/libinput/connection.cpp
++++ b/src/backends/libinput/connection.cpp
+@@ -44,7 +44,8 @@ namespace LibInput
+ 
+ static bool inputTelemetryEnabled()
+ {
+-    if (qEnvironmentVariableIntValue("KWIN_INPUT_LATENCY_TELEMETRY") == 0) {
++    if (qEnvironmentVariableIntValue("KWIN_LATENCY_CAPTURE") != 1
++        && qEnvironmentVariableIntValue("KWIN_INPUT_LATENCY_TELEMETRY") == 0) {
+         return false;
+     }
+ 
+diff --git a/src/compositor.cpp b/src/compositor.cpp
+index 616ee65..969c15d 100644
+--- a/src/compositor.cpp
++++ b/src/compositor.cpp
+@@ -51,10 +51,45 @@
+ #include <QQuickWindow>
+ #include <optional>
+ #include <ranges>
++#include <sys/utsname.h>
+ 
+ namespace KWin
+ {
+ 
++static bool latencyCaptureEnabled()
++{
++    if (qEnvironmentVariableIntValue("KWIN_LATENCY_CAPTURE") != 1) {
++        return false;
++    }
++    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    struct utsname systemInfo;
++    return !expectedRelease.isEmpty() && uname(&systemInfo) == 0 && expectedRelease == systemInfo.release;
++}
++
++static const bool s_latencyCaptureEnabled = latencyCaptureEnabled();
++
++static bool testPresentation(BackendOutput *output, const std::shared_ptr<OutputFrame> &frame)
++{
++    if (!s_latencyCaptureEnabled) {
++        return output->testPresentation(frame);
++    }
++    const auto start = std::chrono::steady_clock::now();
++    const bool result = output->testPresentation(frame);
++    frame->recordPresentationTest(std::chrono::steady_clock::now() - start);
++    return result;
++}
++
++static bool presentOutput(BackendOutput *output, const QList<OutputLayer *> &layers, const std::shared_ptr<OutputFrame> &frame)
++{
++    if (!s_latencyCaptureEnabled) {
++        return output->present(layers, frame);
++    }
++    const auto start = std::chrono::steady_clock::now();
++    const bool result = output->present(layers, frame);
++    frame->recordPresentQueue(std::chrono::steady_clock::now() - start);
++    return result;
++}
++
+ Compositor *Compositor::create(QObject *parent)
+ {
+     Q_ASSERT(!s_compositor);
+@@ -357,20 +392,32 @@ static Rect mapItemToOutputDeviceCoordinates(Item *item, RenderView *view, Logic
+ static bool prepareDirectScanout(RenderView *view, LogicalOutput *logicalOutput, BackendOutput *backendOutput, const std::shared_ptr<OutputFrame> &frame)
+ {
+     if (!view->isVisible()) {
++        if (s_latencyCaptureEnabled) {
++            frame->recordDirectScanout(DirectScanoutTelemetryReason::ViewHidden);
++        }
+         return false;
+     }
+     const auto layer = view->layer();
+     const auto candidate = view->scanoutCandidate();
+     if (!candidate) {
+         layer->setScanoutCandidate(nullptr);
++        if (s_latencyCaptureEnabled) {
++            frame->recordDirectScanout(DirectScanoutTelemetryReason::NoCandidate);
++        }
+         return false;
+     }
+     const auto buffer = candidate->buffer();
+     if (!buffer) {
++        if (s_latencyCaptureEnabled) {
++            frame->recordDirectScanout(DirectScanoutTelemetryReason::NoBuffer);
++        }
+         return false;
+     }
+     const auto attrs = buffer->dmabufAttributes();
+     if (!attrs) {
++        if (s_latencyCaptureEnabled) {
++            frame->recordDirectScanout(DirectScanoutTelemetryReason::NoDmaBufAttributes);
++        }
+         return false;
+     }
+     layer->setTargetRect(mapItemToOutputDeviceCoordinates(candidate, view, logicalOutput, backendOutput));
+@@ -380,15 +427,32 @@ static bool prepareDirectScanout(RenderView *view, LogicalOutput *logicalOutput,
+     layer->setOffloadTransform(candidate->bufferTransform().combine(backendOutput->transform().inverted()));
+     layer->setColor(candidate->colorDescription(), candidate->renderingIntent(), ColorPipeline::create(candidate->colorDescription(), backendOutput->layerBlendingColor(), candidate->renderingIntent()));
+     if (!layer->earlyScanoutChecks()) {
++        if (s_latencyCaptureEnabled) {
++            frame->recordDirectScanout(DirectScanoutTelemetryReason::EarlyChecksFailed);
++        }
+         return false;
+     }
+     const bool tearing = frame->presentationMode() == PresentationMode::Async || frame->presentationMode() == PresentationMode::AdaptiveAsync;
+     const auto formats = tearing ? layer->supportedAsyncDrmFormats() : layer->supportedDrmFormats();
+-    if (!formats.containsFormat(attrs->format, attrs->modifier) || !layer->importScanoutBuffer(candidate->buffer(), frame)) {
++    if (!formats.containsFormat(attrs->format, attrs->modifier)) {
++        if (s_latencyCaptureEnabled) {
++            frame->recordDirectScanout(DirectScanoutTelemetryReason::FormatUnsupported);
++        }
++        layer->setScanoutCandidate(candidate);
++        candidate->setScanoutHint(layer->scanoutDevice(), formats);
++        return false;
++    }
++    if (!layer->importScanoutBuffer(candidate->buffer(), frame)) {
++        if (s_latencyCaptureEnabled) {
++            frame->recordDirectScanout(DirectScanoutTelemetryReason::BufferImportFailed);
++        }
+         layer->setScanoutCandidate(candidate);
+         candidate->setScanoutHint(layer->scanoutDevice(), formats);
+         return false;
+     }
++    if (s_latencyCaptureEnabled) {
++        frame->recordDirectScanout(DirectScanoutTelemetryReason::Accepted);
++    }
+     candidate->resetDamage();
+     // ensure the pixmap is updated when direct scanout ends
+     candidate->destroyTexture();
+@@ -646,7 +710,7 @@ std::pair<QList<Compositor::LayerData>, bool> Compositor::setupLayers(SceneView
+             return std::make_pair(layers, false);
+         }
+     }
+-    return std::make_pair(layers, backendOutput->testPresentation(frame));
++    return std::make_pair(layers, testPresentation(backendOutput, frame));
+ }
+ 
+ void Compositor::composite(RenderLoop *renderLoop)
+@@ -776,6 +840,9 @@ void Compositor::composite(RenderLoop *renderLoop)
+ 
+     // test and downgrade the configuration until the test is successful
+     if (!result) {
++        if (s_latencyCaptureEnabled) {
++            frame->recordPresentationFallback();
++        }
+         // first, fall back to composited primary + hardware cursor, if that's not already done
+         const bool fallback1 = layers.size() <= 2 && std::ranges::all_of(layers, [](const LayerData &layer) {
+             return layer.highPriority;
+@@ -789,6 +856,9 @@ void Compositor::composite(RenderLoop *renderLoop)
+         // if this still doesn't work, fall back to primary only
+         const bool fallback2 = layers.size() == 1 && layers.front().view == primaryView;
+         if (!result && !fallback2) {
++            if (s_latencyCaptureEnabled) {
++                frame->recordPresentationFallback();
++            }
+             idealLayerAssignments = assignLayers(primaryView, sceneOnly, allowedOutputLayers);
+             std::tie(layers, result) = setupLayers(primaryView, logicalOutput, output, allowedOutputLayers, *idealLayerAssignments,
+                                                    frame, SetupType::Fallback, toUpdate);
+@@ -834,11 +904,14 @@ void Compositor::composite(RenderLoop *renderLoop)
+     totalTimeQuery->end();
+     frame->addRenderTimeQuery(std::move(totalTimeQuery));
+     // TODO make Output::present take a set instead of a list
+-    if (result && !output->present(toUpdate | std::ranges::to<QList>(), frame)) {
++    if (result && !presentOutput(output, toUpdate | std::ranges::to<QList>(), frame)) {
+         // legacy modesetting can't do (useful) presentation tests
+         // and even with atomic modesetting, drivers are buggy and atomic tests
+         // sometimes have false positives
+         result = false;
++        if (s_latencyCaptureEnabled) {
++            frame->recordPresentationFallback();
++        }
+ 
+         // same fallbacks as above:
+         // first, fall back to composited primary + hardware cursor, if that's not already done
+@@ -851,7 +924,7 @@ void Compositor::composite(RenderLoop *renderLoop)
+                                                    frame, SetupType::Fallback, toUpdate);
+             if (result) {
+                 renderLayers();
+-                result = output->present(toUpdate | std::ranges::to<QList>(), frame);
++                result = presentOutput(output, toUpdate | std::ranges::to<QList>(), frame);
+             }
+         }
+ 
+@@ -863,7 +936,7 @@ void Compositor::composite(RenderLoop *renderLoop)
+                                                    frame, SetupType::Fallback, toUpdate);
+             if (result) {
+                 renderLayers();
+-                result = output->present(toUpdate | std::ranges::to<QList>(), frame);
++                result = presentOutput(output, toUpdate | std::ranges::to<QList>(), frame);
+             }
+             if (result && !fallback1) {
+                 // Disabling the cursor layer helped... so disable it permanently,
+diff --git a/src/core/renderbackend.cpp b/src/core/renderbackend.cpp
+index d1022a0..ab50312 100644
+--- a/src/core/renderbackend.cpp
++++ b/src/core/renderbackend.cpp
+@@ -139,6 +139,33 @@ std::chrono::nanoseconds OutputFrame::predictedRenderTime() const
+     return m_predictedRenderTime;
+ }
+ 
++void OutputFrame::recordDirectScanout(DirectScanoutTelemetryReason reason)
++{
++    m_latencyTelemetry.directScanoutReason = reason;
++    m_latencyTelemetry.directScanoutAttempts++;
++}
++
++void OutputFrame::recordPresentationTest(std::chrono::nanoseconds duration)
++{
++    m_latencyTelemetry.presentationTests++;
++    m_latencyTelemetry.presentationTestDuration += duration;
++}
++
++void OutputFrame::recordPresentationFallback()
++{
++    m_latencyTelemetry.presentationFallbacks++;
++}
++
++void OutputFrame::recordPresentQueue(std::chrono::nanoseconds duration)
++{
++    m_latencyTelemetry.presentQueueDuration += duration;
++}
++
++const FrameLatencyTelemetry &OutputFrame::latencyTelemetry() const
++{
++    return m_latencyTelemetry;
++}
++
+ std::optional<double> OutputFrame::brightness() const
+ {
+     return m_brightness;
+diff --git a/src/core/renderbackend.h b/src/core/renderbackend.h
+index c03bb90..8118a85 100644
+--- a/src/core/renderbackend.h
++++ b/src/core/renderbackend.h
+@@ -13,6 +13,7 @@
+ 
+ #include <QObject>
+ #include <QPointer>
++#include <cstdint>
+ #include <memory>
+ 
+ namespace KWin
+@@ -48,6 +49,28 @@ struct RenderTimeSpan
+     RenderTimeSpan operator|(const RenderTimeSpan &other) const;
+ };
+ 
++enum class DirectScanoutTelemetryReason : uint8_t {
++    NotAttempted = 0,
++    Accepted,
++    ViewHidden,
++    NoCandidate,
++    NoBuffer,
++    NoDmaBufAttributes,
++    EarlyChecksFailed,
++    FormatUnsupported,
++    BufferImportFailed,
++};
++
++struct FrameLatencyTelemetry
++{
++    DirectScanoutTelemetryReason directScanoutReason = DirectScanoutTelemetryReason::NotAttempted;
++    uint32_t directScanoutAttempts = 0;
++    uint32_t presentationTests = 0;
++    uint32_t presentationFallbacks = 0;
++    std::chrono::nanoseconds presentationTestDuration = std::chrono::nanoseconds::zero();
++    std::chrono::nanoseconds presentQueueDuration = std::chrono::nanoseconds::zero();
++};
++
+ class KWIN_EXPORT RenderTimeQuery
+ {
+ public:
+@@ -94,6 +117,12 @@ public:
+     std::chrono::nanoseconds refreshDuration() const;
+     std::chrono::nanoseconds predictedRenderTime() const;
+ 
++    void recordDirectScanout(DirectScanoutTelemetryReason reason);
++    void recordPresentationTest(std::chrono::nanoseconds duration);
++    void recordPresentationFallback();
++    void recordPresentQueue(std::chrono::nanoseconds duration);
++    const FrameLatencyTelemetry &latencyTelemetry() const;
++
+     std::optional<double> brightness() const;
+     void setBrightness(double brightness);
+ 
+@@ -118,6 +147,7 @@ private:
+     std::optional<double> m_brightness;
+     std::optional<double> m_dimmingFactor;
+     std::optional<double> m_artificialHdrHeadroom;
++    FrameLatencyTelemetry m_latencyTelemetry;
+ };
+ 
+ /**
+diff --git a/src/core/renderloop.cpp b/src/core/renderloop.cpp
+index 1169ff7..e1f1146 100644
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -37,7 +37,8 @@ static bool experimentKernelAllowed()
+ }
+ 
+ static const bool s_experimentKernelAllowed = experimentKernelAllowed();
+-static const bool s_printDebugInfo = s_experimentKernelAllowed && qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0;
++static const bool s_latencyCapture = s_experimentKernelAllowed && qEnvironmentVariableIntValue("KWIN_LATENCY_CAPTURE") == 1;
++static const bool s_printDebugInfo = s_experimentKernelAllowed && (s_latencyCapture || qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0);
+ static const uint64_t s_compositorTelemetrySampleDivisor = static_cast<uint64_t>(std::clamp(
+     environmentVariableIntValue("KWIN_COMPOSITOR_TELEMETRY_SAMPLE_DIVISOR").value_or(16), 1, 4096));
+ static const std::chrono::microseconds s_schedulerMargin{
+@@ -483,7 +484,7 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
+ 
+     if (output && s_printDebugInfo && !m_debugOutput) {
+         m_debugOutput = std::fstream(qPrintable("kwin perf statistics " + output->name() + ".csv"), std::ios::out);
+-        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid,experiment kernel allowed,adaptive margin path,adaptive window samples,adaptive external stalls,adaptive second peak,adaptive state warmed,wake sample sequence,wake sample trained,telemetry sample divisor,raw render duration,stock render duration,stock render prediction,adaptive render budget,emergency render budget,render budget mode,render budget path,render budget window samples,render budget second peak,render budget warmed\n";
++        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid,experiment kernel allowed,adaptive margin path,adaptive window samples,adaptive external stalls,adaptive second peak,adaptive state warmed,wake sample sequence,wake sample trained,telemetry sample divisor,raw render duration,stock render duration,stock render prediction,adaptive render budget,emergency render budget,render budget mode,render budget path,render budget window samples,render budget second peak,render budget warmed,repaint decision,vrr foreground cadence,vrr fallback deadline,direct scanout reason,direct scanout attempts,presentation tests,presentation test duration,presentation fallbacks,present queue duration\n";
+     }
+     if (m_debugOutput) {
+         const auto &adaptiveState = adaptiveMarginState(scheduledAdaptiveMarginPath);
+@@ -501,6 +502,7 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
+             const bool tearing = mode == PresentationMode::Async || mode == PresentationMode::AdaptiveAsync;
+             const auto wakeLateness = std::max(actualWakeTimestamp - armedWakeTimestamp, 0ns);
+             const auto scheduleDeficit = std::max(armedWakeTimestamp - desiredWakeTimestamp, 0ns);
++            const auto &frameTelemetry = frame->latencyTelemetry();
+             *m_debugOutput << frame->targetPageflipTime().time_since_epoch().count() << "," << timestamp.count() << "," << times.start.time_since_epoch().count() << "," << times.end.time_since_epoch().count()
+                            << "," << safetyMargin.count() << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0) << "," << frame->predictedRenderTime().count()
+                            << "," << desiredWakeTimestamp.count() << "," << armedWakeTimestamp.count() << "," << actualWakeTimestamp.count() << "," << wakeLateness.count() << "," << scheduleDeficit.count() << "," << appliedSchedulerMargin.count()
+@@ -508,7 +510,10 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
+                            << "," << adaptiveMarginPathNumber(scheduledAdaptiveMarginPath) << "," << adaptiveState.windowSampleCount << "," << adaptiveState.externalStallCount << "," << adaptiveState.secondLargestWakeLateness.count()
+                            << "," << (adaptiveState.warmedUp ? 1 : 0) << "," << wakeSampleSequence << "," << (wakeSampleTrained ? 1 : 0) << "," << s_compositorTelemetrySampleDivisor
+                            << "," << rawRenderDuration.count() << "," << stockRenderDuration.count() << "," << renderJournal.result().count() << "," << renderBudgetState.budget.count() << "," << renderBudgetState.emergencyBudget.count()
+-                           << "," << s_renderBudgetMode << "," << adaptiveMarginPathNumber(completedPath) << "," << renderBudgetState.windowSampleCount << "," << renderBudgetState.secondLargestRenderDuration.count() << "," << (renderBudgetState.warmedUp ? 1 : 0) << "\n";
++                           << "," << s_renderBudgetMode << "," << adaptiveMarginPathNumber(completedPath) << "," << renderBudgetState.windowSampleCount << "," << renderBudgetState.secondLargestRenderDuration.count() << "," << (renderBudgetState.warmedUp ? 1 : 0)
++                           << "," << static_cast<unsigned int>(lastRepaintDecision) << "," << lastVrrForegroundCadence.count() << "," << lastVrrFallbackDeadline.count()
++                           << "," << static_cast<unsigned int>(frameTelemetry.directScanoutReason) << "," << frameTelemetry.directScanoutAttempts << "," << frameTelemetry.presentationTests << "," << frameTelemetry.presentationTestDuration.count()
++                           << "," << frameTelemetry.presentationFallbacks << "," << frameTelemetry.presentQueueDuration.count() << "\n";
+             lastLoggedAdaptiveMargin = adaptiveState.margin;
+             lastLoggedAdaptiveMarginPath = scheduledAdaptiveMarginPath;
+             lastLoggedAdaptiveExternalStallCount = adaptiveState.externalStallCount;
+@@ -637,6 +642,11 @@ void RenderLoop::setPresentationSafetyMargin(std::chrono::nanoseconds safetyMarg
+ 
+ void RenderLoop::scheduleRepaint(Item *item, OutputLayer *outputLayer)
+ {
++    if (s_printDebugInfo) {
++        d->lastRepaintDecision = RenderLoopPrivate::RepaintTelemetryDecision::Immediate;
++        d->lastVrrForegroundCadence = 0ns;
++        d->lastVrrFallbackDeadline = 0ns;
++    }
+     const bool vrr = d->presentationMode == PresentationMode::AdaptiveSync || d->presentationMode == PresentationMode::AdaptiveAsync;
+     const bool tearing = d->presentationMode == PresentationMode::Async || d->presentationMode == PresentationMode::AdaptiveAsync;
+     const auto activeFrameTime = (vrr || tearing) && (item || outputLayer) ? activeWindowFrameTimeEstimation() : std::nullopt;
+@@ -647,12 +657,24 @@ void RenderLoop::scheduleRepaint(Item *item, OutputLayer *outputLayer)
+                 const auto foregroundCadence = std::max(*activeFrameTime, outputRefreshDuration(d->refreshRate));
+                 const auto currentTime = std::chrono::steady_clock::now().time_since_epoch();
+                 const auto foregroundDeadline = std::max(d->lastPresentationTimestamp + foregroundCadence, currentTime);
++                if (s_printDebugInfo) {
++                    d->lastRepaintDecision = RenderLoopPrivate::RepaintTelemetryDecision::CadenceDeferred;
++                    d->lastVrrForegroundCadence = foregroundCadence;
++                    d->lastVrrFallbackDeadline = foregroundDeadline;
++                }
+                 d->startDelayedVrrTimer(foregroundDeadline);
+             } else {
++                if (s_printDebugInfo) {
++                    d->lastRepaintDecision = RenderLoopPrivate::RepaintTelemetryDecision::StockDeferred;
++                }
+                 d->startDelayedVrrTimer(0ns);
+             }
+             return;
+         }
++        if (s_printDebugInfo) {
++            d->lastRepaintDecision = RenderLoopPrivate::RepaintTelemetryDecision::ForegroundImmediate;
++            d->lastVrrForegroundCadence = *activeFrameTime;
++        }
+     }
+     d->stopDelayedVrrTimer();
+     const int effectiveMaxPendingFrameCount = (vrr || tearing) ? 1 : d->maxPendingFrameCount;
+diff --git a/src/core/renderloop_p.h b/src/core/renderloop_p.h
+index 6e88bd7..0ef380e 100644
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -29,6 +29,13 @@ class OutputFrame;
+ class KWIN_EXPORT RenderLoopPrivate
+ {
+ public:
++    enum class RepaintTelemetryDecision : uint8_t {
++        Immediate = 0,
++        ForegroundImmediate,
++        CadenceDeferred,
++        StockDeferred,
++    };
++
+     enum class AdaptiveMarginPath : uint8_t {
+         VSync,
+         AdaptiveSync,
+@@ -120,6 +127,9 @@ public:
+     bool preparingNewFrame = false;
+     int inhibitCount = 0;
+     bool pendingReschedule = false;
++    RepaintTelemetryDecision lastRepaintDecision = RepaintTelemetryDecision::Immediate;
++    std::chrono::nanoseconds lastVrrForegroundCadence = std::chrono::nanoseconds::zero();
++    std::chrono::nanoseconds lastVrrFallbackDeadline = std::chrono::nanoseconds::zero();
+     std::chrono::nanoseconds safetyMargin{0};
+ 
+     PresentationMode presentationMode = PresentationMode::VSync;
+

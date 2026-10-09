@@ -1,0 +1,281 @@
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -13,6 +13,9 @@
+ 
+ #include <QBasicTimer>
+ 
++#include <array>
++#include <cstddef>
++#include <cstdint>
+ #include <fstream>
+ #include <optional>
+ 
+@@ -25,6 +28,23 @@
+ class KWIN_EXPORT RenderLoopPrivate
+ {
+ public:
++    enum class AdaptiveMarginPath : uint8_t {
++        VSync,
++        AdaptiveSync,
++        Async,
++        AdaptiveAsync,
++        Count,
++    };
++
++    struct AdaptiveMarginState {
++        std::chrono::nanoseconds margin = std::chrono::nanoseconds::zero();
++        std::chrono::nanoseconds largestWakeLateness = std::chrono::nanoseconds::zero();
++        std::chrono::nanoseconds secondLargestWakeLateness = std::chrono::nanoseconds::zero();
++        unsigned int windowSampleCount = 0;
++        unsigned int externalStallCount = 0;
++        bool warmedUp = false;
++    };
++
+     static RenderLoopPrivate *get(RenderLoop *loop);
+     explicit RenderLoopPrivate(RenderLoop *q, BackendOutput *output);
+ 
+@@ -34,6 +54,10 @@
+     void startCompositeTimer(std::chrono::nanoseconds deadline, std::chrono::nanoseconds currentTime);
+     void stopCompositeTimer();
+     std::chrono::nanoseconds compositorSchedulingMargin() const;
++    static AdaptiveMarginPath adaptiveMarginPath(PresentationMode mode);
++    AdaptiveMarginState &adaptiveMarginState(AdaptiveMarginPath path);
++    const AdaptiveMarginState &adaptiveMarginState(AdaptiveMarginPath path) const;
++    void resetAdaptiveCompositorSchedulingMargins();
+     void updateAdaptiveCompositorSchedulingMargin();
+ 
+     void delayScheduleRepaint();
+@@ -53,10 +77,12 @@
+     std::chrono::nanoseconds armedWakeTimestamp = std::chrono::nanoseconds::zero();
+     std::chrono::nanoseconds actualWakeTimestamp = std::chrono::nanoseconds::zero();
+     std::chrono::nanoseconds appliedSchedulerMargin = std::chrono::nanoseconds::zero();
+-    std::chrono::nanoseconds adaptiveSchedulerMargin = std::chrono::nanoseconds::zero();
+-    std::chrono::nanoseconds adaptiveWakeWindowPeak = std::chrono::nanoseconds::zero();
+-    unsigned int adaptiveCleanWakeCount = 0;
++    std::array<AdaptiveMarginState, static_cast<std::size_t>(AdaptiveMarginPath::Count)> adaptiveMarginStates;
++    AdaptiveMarginPath scheduledAdaptiveMarginPath = AdaptiveMarginPath::VSync;
++    uint64_t wakeSampleSequence = 0;
++    bool wakeSampleEligible = false;
+     bool wakeSampleValid = false;
++    bool wakeSampleTrained = false;
+     bool wasTripleBuffering = false;
+     int doubleBufferingCounter = 0;
+     std::unique_ptr<PreciseTimer> compositeTimer;
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -44,17 +44,22 @@
+ static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2) : 0;
+ static constexpr std::chrono::nanoseconds s_adaptiveMarginFloor = 100us;
+ static constexpr std::chrono::nanoseconds s_adaptiveMarginGuard = 50us;
+-static constexpr std::chrono::nanoseconds s_adaptiveMarginHysteresis = 100us;
+-static constexpr std::chrono::nanoseconds s_adaptiveMarginDecayStep = 25us;
+-static constexpr std::chrono::nanoseconds s_adaptiveMarginCeiling = 2ms;
+-static constexpr unsigned int s_adaptiveMarginDecayInterval = 256;
++static constexpr std::chrono::nanoseconds s_adaptiveMarginHysteresis = 50us;
++static constexpr std::chrono::nanoseconds s_adaptiveMarginDecayStep = 50us;
++static constexpr std::chrono::nanoseconds s_adaptiveMarginHardCeiling = 2ms;
++static constexpr unsigned int s_adaptiveMarginWindowSize = 256;
++static constexpr unsigned int s_adaptiveExternalStallFallbackCount = 2;
++
++static std::chrono::nanoseconds adaptiveMarginCeiling()
++{
++    return std::clamp<std::chrono::nanoseconds>(s_schedulerMargin, s_adaptiveMarginFloor, s_adaptiveMarginHardCeiling);
++}
+ 
+ RenderLoopPrivate::RenderLoopPrivate(RenderLoop *q, BackendOutput *output)
+     : q(q)
+     , output(output)
+ {
+-    adaptiveSchedulerMargin = std::clamp<std::chrono::nanoseconds>(s_schedulerMargin, s_adaptiveMarginFloor, s_adaptiveMarginCeiling);
+-    adaptiveWakeWindowPeak = s_adaptiveMarginFloor;
++    resetAdaptiveCompositorSchedulingMargins();
+     if (s_experimentKernelAllowed) {
+         compositeTimer = std::make_unique<PreciseTimer>();
+         QObject::connect(compositeTimer.get(), &PreciseTimer::timeout, q, [this] {
+@@ -88,39 +93,109 @@
+ 
+ std::chrono::nanoseconds RenderLoopPrivate::compositorSchedulingMargin() const
+ {
+-    return s_schedulerMarginMode == 2 ? adaptiveSchedulerMargin : s_schedulerMargin;
++    return s_schedulerMarginMode == 2 ? adaptiveMarginState(adaptiveMarginPath(presentationMode)).margin : s_schedulerMargin;
++}
++
++RenderLoopPrivate::AdaptiveMarginPath RenderLoopPrivate::adaptiveMarginPath(PresentationMode mode)
++{
++    switch (mode) {
++    case PresentationMode::VSync:
++        return AdaptiveMarginPath::VSync;
++    case PresentationMode::AdaptiveSync:
++        return AdaptiveMarginPath::AdaptiveSync;
++    case PresentationMode::Async:
++        return AdaptiveMarginPath::Async;
++    case PresentationMode::AdaptiveAsync:
++        return AdaptiveMarginPath::AdaptiveAsync;
++    }
++    Q_UNREACHABLE();
++}
++
++RenderLoopPrivate::AdaptiveMarginState &RenderLoopPrivate::adaptiveMarginState(AdaptiveMarginPath path)
++{
++    return adaptiveMarginStates[static_cast<std::size_t>(path)];
++}
++
++const RenderLoopPrivate::AdaptiveMarginState &RenderLoopPrivate::adaptiveMarginState(AdaptiveMarginPath path) const
++{
++    return adaptiveMarginStates[static_cast<std::size_t>(path)];
++}
++
++void RenderLoopPrivate::resetAdaptiveCompositorSchedulingMargins()
++{
++    for (auto &state : adaptiveMarginStates) {
++        state = AdaptiveMarginState{};
++        state.margin = adaptiveMarginCeiling();
++    }
++    wakeSampleEligible = false;
++    wakeSampleValid = false;
++    wakeSampleTrained = false;
+ }
+ 
+ void RenderLoopPrivate::updateAdaptiveCompositorSchedulingMargin()
+ {
+-    wakeSampleValid = desiredWakeTimestamp != 0ns
++    wakeSampleValid = wakeSampleEligible
++        && desiredWakeTimestamp != 0ns
+         && desiredWakeTimestamp == armedWakeTimestamp
+         && actualWakeTimestamp >= armedWakeTimestamp;
++    wakeSampleTrained = false;
+     if (s_schedulerMarginMode == 0 || !wakeSampleValid) {
+         return;
+     }
+ 
++    auto &state = adaptiveMarginState(scheduledAdaptiveMarginPath);
+     const auto wakeLateness = actualWakeTimestamp - armedWakeTimestamp;
+-    const auto requiredMargin = std::clamp(wakeLateness + s_adaptiveMarginGuard, s_adaptiveMarginFloor, s_adaptiveMarginCeiling);
+-    adaptiveWakeWindowPeak = std::max(adaptiveWakeWindowPeak, requiredMargin);
+-
+-    // Deadline debt is paid immediately. Credit requires a long clean run and is
+-    // consumed in small steps so an isolated quiet interval cannot collapse the
+-    // safety reserve.
+-    if (requiredMargin > adaptiveSchedulerMargin) {
+-        adaptiveSchedulerMargin = requiredMargin;
+-        adaptiveWakeWindowPeak = s_adaptiveMarginFloor;
+-        adaptiveCleanWakeCount = 0;
+-    } else if (requiredMargin + s_adaptiveMarginHysteresis <= adaptiveSchedulerMargin) {
+-        adaptiveCleanWakeCount++;
+-        if (adaptiveCleanWakeCount >= s_adaptiveMarginDecayInterval) {
+-            adaptiveSchedulerMargin = std::max(adaptiveWakeWindowPeak, adaptiveSchedulerMargin - s_adaptiveMarginDecayStep);
+-            adaptiveWakeWindowPeak = s_adaptiveMarginFloor;
+-            adaptiveCleanWakeCount = 0;
++    const auto ceiling = adaptiveMarginCeiling();
++    state.windowSampleCount++;
++    wakeSampleTrained = true;
++
++    if (wakeLateness > ceiling) {
++        state.externalStallCount++;
++        // One unrelated scheduler stall is not allowed to poison the margin.
++        // A second stall in the same bounded window restores the known-safe
++        // configured reserve immediately.
++        if (state.externalStallCount >= s_adaptiveExternalStallFallbackCount) {
++            state.margin = ceiling;
+         }
+-    } else {
+-        adaptiveCleanWakeCount = 0;
++    } else if (wakeLateness >= state.largestWakeLateness) {
++        state.secondLargestWakeLateness = state.largestWakeLateness;
++        state.largestWakeLateness = wakeLateness;
++    } else if (wakeLateness > state.secondLargestWakeLateness) {
++        state.secondLargestWakeLateness = wakeLateness;
++    }
++
++    // The second observation is enough to prove this is no longer an isolated
++    // spike. Pay that repeated tail immediately instead of waiting for the
++    // remainder of the window.
++    const auto repeatedTailTarget = std::clamp(state.secondLargestWakeLateness + s_adaptiveMarginGuard, s_adaptiveMarginFloor, ceiling);
++    if (repeatedTailTarget > state.margin) {
++        state.margin = repeatedTailTarget;
++    }
++
++    if (state.windowSampleCount < s_adaptiveMarginWindowSize) {
++        return;
+     }
++
++    const auto target = state.externalStallCount >= s_adaptiveExternalStallFallbackCount
++        ? ceiling
++        : std::clamp(state.secondLargestWakeLateness + s_adaptiveMarginGuard, s_adaptiveMarginFloor, ceiling);
++
++    if (target > state.margin) {
++        state.margin = target;
++    } else if (target + s_adaptiveMarginHysteresis <= state.margin) {
++        state.margin = std::max(target, state.margin - s_adaptiveMarginDecayStep);
++    }
++
++    state.warmedUp = true;
++    state.largestWakeLateness = 0ns;
++    state.secondLargestWakeLateness = 0ns;
++    state.windowSampleCount = 0;
++    state.externalStallCount = 0;
++}
++
++static unsigned int adaptiveMarginPathNumber(RenderLoopPrivate::AdaptiveMarginPath path)
++{
++    return static_cast<unsigned int>(path);
+ }
+ 
+ void RenderLoopPrivate::scheduleNextRepaint()
+@@ -138,6 +213,8 @@
+     const std::chrono::nanoseconds currentTime(std::chrono::steady_clock::now().time_since_epoch());
+ 
+     // Estimate when it's a good time to perform the next compositing cycle.
++    scheduledAdaptiveMarginPath = adaptiveMarginPath(presentationMode);
++    wakeSampleEligible = true;
+     appliedSchedulerMargin = compositorSchedulingMargin();
+     std::chrono::nanoseconds expectedCompositingTime = std::min(renderJournal.result() + safetyMargin + appliedSchedulerMargin, 2 * vblankInterval);
+ 
+@@ -148,6 +225,7 @@
+             // if it's been a while since the last frame, the GPU is likely in a low power state and render time will be increased
+             // -> take that into account and start compositing very early
+             expectedCompositingTime = std::max(vblankInterval - 1us, expectedCompositingTime);
++            wakeSampleEligible = false;
+         }
+         const uint64_t pageflipsSinceLastToTarget = std::max<int64_t>(std::round((lastTargetTimestamp - lastPresentationTimestamp).count() / double(vblankInterval.count())), 0);
+         uint64_t pageflipsInAdvance = std::min<int64_t>(expectedCompositingTime / vblankInterval + 1, maxPendingFrameCount);
+@@ -223,7 +301,7 @@
+ {
+     if (output && s_printDebugInfo && !m_debugOutput) {
+         m_debugOutput = std::fstream(qPrintable("kwin perf statistics " + output->name() + ".csv"), std::ios::out);
+-        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid,experiment kernel allowed\n";
++        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid,experiment kernel allowed,adaptive margin path,adaptive window samples,adaptive external stalls,adaptive second peak,adaptive state warmed,wake sample sequence,wake sample trained\n";
+     }
+     if (m_debugOutput) {
+         auto times = renderTime.value_or(RenderTimeSpan{});
+@@ -231,10 +309,13 @@
+         const bool tearing = mode == PresentationMode::Async || mode == PresentationMode::AdaptiveAsync;
+         const auto wakeLateness = std::max(actualWakeTimestamp - armedWakeTimestamp, 0ns);
+         const auto scheduleDeficit = std::max(armedWakeTimestamp - desiredWakeTimestamp, 0ns);
++        const auto &adaptiveState = adaptiveMarginState(scheduledAdaptiveMarginPath);
+         *m_debugOutput << frame->targetPageflipTime().time_since_epoch().count() << "," << timestamp.count() << "," << times.start.time_since_epoch().count() << "," << times.end.time_since_epoch().count()
+                        << "," << safetyMargin.count() << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0) << "," << frame->predictedRenderTime().count()
+                        << "," << desiredWakeTimestamp.count() << "," << armedWakeTimestamp.count() << "," << actualWakeTimestamp.count() << "," << wakeLateness.count() << "," << scheduleDeficit.count() << "," << appliedSchedulerMargin.count()
+-                       << "," << adaptiveSchedulerMargin.count() << "," << s_schedulerMarginMode << "," << (wakeSampleValid ? 1 : 0) << "," << (s_experimentKernelAllowed ? 1 : 0) << "\n";
++                       << "," << adaptiveState.margin.count() << "," << s_schedulerMarginMode << "," << (wakeSampleValid ? 1 : 0) << "," << (s_experimentKernelAllowed ? 1 : 0)
++                       << "," << adaptiveMarginPathNumber(scheduledAdaptiveMarginPath) << "," << adaptiveState.windowSampleCount << "," << adaptiveState.externalStallCount << "," << adaptiveState.secondLargestWakeLateness.count()
++                       << "," << (adaptiveState.warmedUp ? 1 : 0) << "," << wakeSampleSequence << "," << (wakeSampleTrained ? 1 : 0) << "\n";
+     }
+ 
+     Q_ASSERT(pendingFrameCount > 0);
+@@ -285,6 +366,7 @@
+ void RenderLoopPrivate::dispatch()
+ {
+     actualWakeTimestamp = std::chrono::steady_clock::now().time_since_epoch();
++    wakeSampleSequence++;
+     updateAdaptiveCompositorSchedulingMargin();
+     Q_EMIT q->frameRequested(q);
+ }
+@@ -339,6 +421,7 @@
+         return;
+     }
+     d->refreshRate = refreshRate;
++    d->resetAdaptiveCompositorSchedulingMargins();
+     Q_EMIT refreshRateChanged();
+ 
+     if (d->compositeTimerActive()) {

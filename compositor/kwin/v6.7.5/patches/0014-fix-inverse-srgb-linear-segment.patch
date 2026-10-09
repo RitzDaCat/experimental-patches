@@ -1,0 +1,68 @@
+From 061f564010fb07d00a06e27851c6a43bbf80f8bb Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Tue, 21 Jul 2026 22:48:00 -0500
+Subject: [PATCH] core: fix inverse sRGB linear segment
+
+The low segment of the inverse sRGB transfer function multiplies linear light
+by 12.92. Dividing by 12.92 makes values immediately below the piecewise
+boundary about 167 times too small and introduces a large discontinuity.
+
+The GLSL implementation already uses multiplication. Add focused CPU
+round-trip coverage below, at, and above the boundary; existing tests only
+sample black, mid gray, white, and primaries.
+---
+ autotests/test_colorspaces.cpp | 18 ++++++++++++++++++
+ src/core/colorspace.cpp        |  2 +-
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/autotests/test_colorspaces.cpp b/autotests/test_colorspaces.cpp
+index c25154307b..b42301d5c7 100644
+--- a/autotests/test_colorspaces.cpp
++++ b/autotests/test_colorspaces.cpp
+@@ -29,6 +29,7 @@ public:
+ private Q_SLOTS:
+     void roundtripConversion_data();
+     void roundtripConversion();
++    void testSrgbLinearSegmentRoundtrip();
+     void testXYZ_XYconversions();
+     void testIdentityTransformation_data();
+     void testIdentityTransformation();
+@@ -104,6 +105,23 @@ void TestColorspaces::roundtripConversion()
+     }
+ }
+ 
++void TestColorspaces::testSrgbLinearSegmentRoundtrip()
++{
++    const TransferFunction transfer(TransferFunction::sRGB, 0, 1);
++    constexpr std::array encodedValues{
++        0.0,
++        0.01,
++        0.02,
++        0.04044,
++        0.04045,
++        0.05,
++    };
++    for (const double encoded : encodedValues) {
++        const double roundtrip = transfer.nitsToEncoded(transfer.encodedToNits(encoded));
++        QVERIFY2(std::abs(roundtrip - encoded) < 1e-12, qPrintable(QString::number(encoded, 'g', 16)));
++    }
++}
++
+ void TestColorspaces::testXYZ_XYconversions()
+ {
+     // this test ensures that xyY<->XYZ conversions can handle weird inputs
+diff --git a/src/core/colorspace.cpp b/src/core/colorspace.cpp
+index 373a99e6ab..de9a17ae87 100644
+--- a/src/core/colorspace.cpp
++++ b/src/core/colorspace.cpp
+@@ -824,7 +824,7 @@ double TransferFunction::nitsToEncoded(double nits) const
+     switch (type) {
+     case TransferFunction::sRGB: {
+         if (normalized < 0.0031308) {
+-            return std::max(normalized / 12.92, 0.0);
++            return std::max(normalized * 12.92, 0.0);
+         } else {
+             return std::clamp(std::pow(normalized, 5.0 / 12.0) * 1.055 - 0.055, 0.0, 1.0);
+         }
+-- 
+2.50.1

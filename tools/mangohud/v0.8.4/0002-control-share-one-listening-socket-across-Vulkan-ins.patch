@@ -1,0 +1,110 @@
+From 2b079ed781463633f4c7572b7403a3786606d207 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Sun, 26 Jul 2026 16:20:57 -0500
+Subject: [PATCH 2/2] control: share one listening socket across Vulkan
+ instances
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Games that create an early non-presenting instance (vkd3d-proton device
+enumeration — observed with World of Warcraft) wedged the control socket.
+parse_control() runs once per instance: the first instance bound
+@mangohud-<pid> and never presented, so control_client_check() never ran
+for it, while the presenting instance's bind failed with EADDRINUSE and
+it ended up with control = -1. Clients then connected and were never
+accepted — the listen backlog filled and mangohudctl timed out.
+
+Open the socket once per process and hand the same fd to every instance,
+so whichever instance actually presents services it. A function-local
+static does this without a mutable global, and its guaranteed-once
+initialisation is thread-safe against the inotify config-reload thread
+(notify.cpp) racing instance creation — a plain check-then-set global
+could let both threads bind and reintroduce the EADDRINUSE case.
+
+Because the listener is now shared, destroy_instance_data() must not
+close it; the early enumeration instance is torn down while the
+presenting one lives on. It is released at process exit. The accepted
+client fd is genuinely per-instance and was never being closed, so close
+that instead.
+---
+ src/overlay_params.cpp | 28 +++++++++++++++++++++++++---
+ src/vulkan.cpp         |  9 +++++++--
+ 2 files changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/src/overlay_params.cpp b/src/overlay_params.cpp
+index b10a0ce..c2c6589 100644
+--- a/src/overlay_params.cpp
++++ b/src/overlay_params.cpp
+@@ -137,8 +137,21 @@ parse_position(const char *str)
+    return LAYER_POSITION_TOP_LEFT;
+ }
+ 
++/* Process-global control socket: opened on first use, lives for the lifetime
++ * of the process.
++ *
++ * parse_control() runs once per Vulkan instance. Games that create an early
++ * non-presenting instance (vkd3d-proton device enumeration — observed with
++ * World of Warcraft) used to wedge the control socket: the first instance
++ * binds @mangohud-<pid> and never presents, so control_client_check() never
++ * runs for it, while the presenting instance's bind fails with EADDRINUSE
++ * and it ends up with control = -1. Clients then connect and are never
++ * accepted (LISTEN backlog fills, mangohudctl times out).
++ *
++ * Fix: every instance shares the one fd, so whichever instance actually
++ * presents services the socket. */
+ static int
+-parse_control(const char *str)
++open_control_socket(const char *str)
+ {
+    std::string path(str);
+    size_t npos = path.find("%p");
+@@ -148,8 +161,7 @@ parse_control(const char *str)
+ 
+    int ret = os_socket_listen_abstract(path.c_str(), 1);
+    if (ret < 0) {
+-      SPDLOG_DEBUG("Couldn't create socket pipe at '{}'", path);
+-      SPDLOG_DEBUG("ERROR: '{}'", strerror(errno));
++      SPDLOG_DEBUG("Couldn't create socket pipe at '{}': {}", path, strerror(errno));
+       return ret;
+    }
+ 
+@@ -158,6 +170,16 @@ parse_control(const char *str)
+    return ret;
+ }
+ 
++static int
++parse_control(const char *str)
++{
++   /* Magic static: initialised exactly once, and thread-safe against the
++    * inotify config-reload thread (notify.cpp) racing instance creation.
++    * The first caller's path wins; a later differing `control=` is ignored. */
++   static const int fd = open_control_socket(str);
++   return fd;
++}
++
+ static float
+ parse_float(const char *str)
+ {
+diff --git a/src/vulkan.cpp b/src/vulkan.cpp
+index 7030d29..aa57333 100644
+--- a/src/vulkan.cpp
++++ b/src/vulkan.cpp
+@@ -285,8 +285,13 @@ static struct instance_data *new_instance_data(VkInstance instance)
+ 
+ static void destroy_instance_data(struct instance_data *data)
+ {
+-   if (data->params.control >= 0)
+-      os_socket_close(data->params.control);
++   /* params.control is the process-global listener (see parse_control):
++    * closing it here would kill it for the surviving instances — observed
++    * with World of Warcraft, whose early vkd3d enumeration instance is
++    * destroyed while the presenting instance lives on. It is released by
++    * process exit. The accepted client fd is per-instance, so it is ours. */
++   if (data->control_client >= 0)
++      os_socket_close(data->control_client);
+    unmap_object(HKEY(data->instance));
+    delete data;
+ }
+-- 
+2.56.0

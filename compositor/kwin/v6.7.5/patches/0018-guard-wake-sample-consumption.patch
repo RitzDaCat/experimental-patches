@@ -1,0 +1,30 @@
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Fri, 24 Jul 2026 12:00:00 -0500
+Subject: [PATCH] core/renderloop: consume the wake sample once per armed wake
+
+The margin controller trains from an armed wake, but nothing in
+updateAdaptiveCompositorSchedulingMargin retired the eligibility flag once the
+sample had been consumed. Only scheduleNextRepaint set it, and only the
+GPU-low-power branch and a full reset cleared it.
+
+Today dispatch() runs once per arm, so no double training occurs. The guard
+makes that a property of the function rather than of its single call site, so a
+future path that dispatches twice against one arm cannot count one physical
+wake as two training samples.
+
+No behavior change in the current call graph: scheduleNextRepaint re-arms the
+flag before every wake.
+
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -311,6 +311,10 @@
+         && desiredWakeTimestamp != 0ns
+         && desiredWakeTimestamp == armedWakeTimestamp
+         && actualWakeTimestamp >= armedWakeTimestamp;
++    // One armed wake trains the margin at most once. Consuming the eligibility
++    // here keeps a second dispatch against the same arm from counting one
++    // physical wake twice; scheduleNextRepaint re-arms it for the next wake.
++    wakeSampleEligible = false;
+     wakeSampleTrained = false;
+     if (s_schedulerMarginMode == 0 || !wakeSampleValid) {
+         return;

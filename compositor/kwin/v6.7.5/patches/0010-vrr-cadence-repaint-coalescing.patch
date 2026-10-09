@@ -1,0 +1,182 @@
+--- a/src/core/renderloop.h
++++ b/src/core/renderloop.h
+@@ -10,6 +10,8 @@
+ 
+ #include <QObject>
+ 
++#include <optional>
++
+ namespace KWin
+ {
+ 
+@@ -104,6 +106,12 @@
+     // and then remove this again
+     bool activeWindowControlsVrrRefreshRate() const;
+ 
++    /**
++     * Returns the measured frame cadence when the active window on this output is
++     * driving VRR, or nullopt when it should not control refresh timing.
++     */
++    std::optional<std::chrono::nanoseconds> activeWindowFrameTimeEstimation() const;
++
+     void timerEvent(QTimerEvent *event) override;
+ 
+ Q_SIGNALS:
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -64,6 +64,8 @@
+     bool compositeTimerActive() const;
+     void startCompositeTimer(std::chrono::nanoseconds deadline, std::chrono::nanoseconds currentTime);
+     void stopCompositeTimer();
++    void startDelayedVrrTimer(std::chrono::nanoseconds deadline);
++    void stopDelayedVrrTimer();
+     std::chrono::nanoseconds compositorSchedulingMargin() const;
+     static AdaptiveMarginPath adaptiveMarginPath(PresentationMode mode);
+     AdaptiveMarginState &adaptiveMarginState(AdaptiveMarginPath path);
+@@ -109,7 +111,9 @@
+     bool wasTripleBuffering = false;
+     int doubleBufferingCounter = 0;
+     std::unique_ptr<PreciseTimer> compositeTimer;
++    std::unique_ptr<PreciseTimer> delayedVrrTimer;
+     QBasicTimer legacyCompositeTimer;
++    QBasicTimer legacyDelayedVrrTimer;
+     RenderJournal renderJournal;
+     int refreshRate = 60000;
+     int pendingFrameCount = 0;
+@@ -121,7 +125,6 @@
+     PresentationMode presentationMode = PresentationMode::VSync;
+     int maxPendingFrameCount = 1;
+ 
+-    QBasicTimer delayedVrrTimer;
+ };
+ 
+ } // namespace KWin
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -46,6 +46,9 @@
+ static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2) : 0;
+ // 0 = stock, 1 = shadow (learn but don't apply), 2 = adaptive.
+ static const int s_renderBudgetMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(0), 0, 2) : 0;
++// Coalesce non-foreground VRR damage to the active surface's measured cadence.
++// The exact-kernel gate and an explicit opt-in are both required.
++static const bool s_vrrRepaintCoalescing = s_experimentKernelAllowed && qEnvironmentVariableIntValue("KWIN_VRR_REPAINT_COALESCING") == 1;
+ static constexpr unsigned int s_adaptiveMarginWindowSize = 256;
+ static constexpr unsigned int s_adaptiveExternalStallFallbackCount = 2;
+ static constexpr unsigned int s_adaptiveRenderBudgetWindowSize = 128;
+@@ -88,6 +91,12 @@
+             dispatch();
+         });
+     }
++    if (s_vrrRepaintCoalescing) {
++        delayedVrrTimer = std::make_unique<PreciseTimer>();
++        QObject::connect(delayedVrrTimer.get(), &PreciseTimer::timeout, q, [this] {
++            this->q->scheduleRepaint(nullptr, nullptr);
++        });
++    }
+ }
+ 
+ static std::chrono::nanoseconds renderBudgetFloor(std::chrono::nanoseconds refreshDuration)
+@@ -232,6 +241,27 @@
+     }
+ }
+ 
++void RenderLoopPrivate::startDelayedVrrTimer(std::chrono::nanoseconds deadline)
++{
++    if (s_vrrRepaintCoalescing) {
++        delayedVrrTimer->start(deadline);
++    } else {
++        constexpr std::chrono::milliseconds stockDelay = 1'000ms / 30;
++        legacyDelayedVrrTimer.start(stockDelay, Qt::PreciseTimer, q);
++    }
++}
++
++void RenderLoopPrivate::stopDelayedVrrTimer()
++{
++    if (s_vrrRepaintCoalescing) {
++        if (delayedVrrTimer->isActive()) {
++            delayedVrrTimer->stop();
++        }
++    } else {
++        legacyDelayedVrrTimer.stop();
++    }
++}
++
+ std::chrono::nanoseconds RenderLoopPrivate::compositorSchedulingMargin() const
+ {
+     return s_schedulerMarginMode == 2 ? adaptiveMarginState(adaptiveMarginPath(presentationMode)).margin : s_schedulerMargin;
+@@ -525,8 +555,8 @@
+     if (event->timerId() == d->legacyCompositeTimer.timerId()) {
+         d->legacyCompositeTimer.stop();
+         d->dispatch();
+-    } else if (event->timerId() == d->delayedVrrTimer.timerId()) {
+-        d->delayedVrrTimer.stop();
++    } else if (event->timerId() == d->legacyDelayedVrrTimer.timerId()) {
++        d->legacyDelayedVrrTimer.stop();
+         scheduleRepaint(nullptr, nullptr);
+     } else {
+         QObject::timerEvent(event);
+@@ -609,15 +639,22 @@
+ {
+     const bool vrr = d->presentationMode == PresentationMode::AdaptiveSync || d->presentationMode == PresentationMode::AdaptiveAsync;
+     const bool tearing = d->presentationMode == PresentationMode::Async || d->presentationMode == PresentationMode::AdaptiveAsync;
+-    if ((vrr || tearing) && (item || outputLayer) && activeWindowControlsVrrRefreshRate() && d->output) {
++    const auto activeFrameTime = (vrr || tearing) && (item || outputLayer) ? activeWindowFrameTimeEstimation() : std::nullopt;
++    if (activeFrameTime && d->output) {
+         SurfaceItem *const surfaceItem = workspace()->activeWindow()->surfaceItem();
+         if (item != surfaceItem && !surfaceItem->isAncestorOf(item)) {
+-            constexpr std::chrono::milliseconds s_delayVrrTimer = 1'000ms / 30;
+-            d->delayedVrrTimer.start(s_delayVrrTimer, Qt::PreciseTimer, this);
++            if (s_vrrRepaintCoalescing) {
++                const auto foregroundCadence = std::max(*activeFrameTime, outputRefreshDuration(d->refreshRate));
++                const auto currentTime = std::chrono::steady_clock::now().time_since_epoch();
++                const auto foregroundDeadline = std::max(d->lastPresentationTimestamp + foregroundCadence, currentTime);
++                d->startDelayedVrrTimer(foregroundDeadline);
++            } else {
++                d->startDelayedVrrTimer(0ns);
++            }
+             return;
+         }
+     }
+-    d->delayedVrrTimer.stop();
++    d->stopDelayedVrrTimer();
+     const int effectiveMaxPendingFrameCount = (vrr || tearing) ? 1 : d->maxPendingFrameCount;
+     if (d->pendingFrameCount < effectiveMaxPendingFrameCount && !d->inhibitCount) {
+         d->scheduleNextRepaint();
+@@ -628,21 +665,28 @@
+ 
+ bool RenderLoop::activeWindowControlsVrrRefreshRate() const
+ {
++    return activeWindowFrameTimeEstimation().has_value();
++}
++
++std::optional<std::chrono::nanoseconds> RenderLoop::activeWindowFrameTimeEstimation() const
++{
+     if (Q_UNLIKELY(!workspace())) {
+-        return false;
++        return std::nullopt;
+     }
+ 
+     Window *const activeWindow = workspace()->activeWindow();
+     LogicalOutput *logical = workspace()->findOutput(d->output);
+     if (!logical) {
+-        return false;
++        return std::nullopt;
+     }
+-    return activeWindow
+-        && activeWindow->frameGeometry().intersects(logical->geometryF())
+-        && activeWindow->surfaceItem()
+-        && activeWindow->surfaceItem()->recursiveFrameTimeEstimation().transform([](const auto t) {
+-        return t <= std::chrono::nanoseconds(1'000'000'000) / 30;
+-    }).value_or(false);
++    if (!activeWindow
++        || !activeWindow->frameGeometry().intersects(logical->geometryF())
++        || !activeWindow->surfaceItem()) {
++        return std::nullopt;
++    }
++    const auto frameTime = activeWindow->surfaceItem()->recursiveFrameTimeEstimation();
++    constexpr auto activeCadenceLimit = std::chrono::nanoseconds(1'000'000'000) / 30;
++    return frameTime && *frameTime <= activeCadenceLimit ? frameTime : std::nullopt;
+ }
+ 
+ std::chrono::nanoseconds RenderLoop::lastPresentationTimestamp() const
+

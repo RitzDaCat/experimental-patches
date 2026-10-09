@@ -1,0 +1,645 @@
+From 45396ad084794a312e815e061c83d682f4a475e1 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Wed, 22 Jul 2026 14:00:00 -0500
+Subject: [PATCH] backends/drm: compensate mandatory color pipeline curves
+
+Some DRM color-pipeline graphs contain named transfer functions that cannot be
+bypassed. The existing matcher rejects a requested client-to-output pipeline
+when such a block appears before or after the programmable operations. On the
+tested NVIDIA Full graph, that prevents SDR fullscreen content from using
+direct scanout while the output is HDR/WCG.
+
+Program each mandatory named curve and place its mathematical inverse in a
+programmable neighbor. Normalize the input of fixed PQ-125 inverse curves in a
+preceding matrix so negative minima and linear ranges above 125 are preserved
+without clipping. Support a mandatory trailing curve with the inverse folded
+into the preceding programmable LUT.
+
+Keep this work outside the frame hot path: successful and failed assignments
+continue to use the existing pipeline cache. Add a deterministic mock of the
+relevant NVIDIA graph and numerically compare the programmed graph with the
+requested transform across its full measured range.
+
+---
+ autotests/drm/mockDrmTest.cpp    | 226 +++++++++++++++++++++++++++++++
+ src/backends/drm/drm_colorop.cpp | 212 +++++++++++++++++++++++++----
+ src/backends/drm/drm_colorop.h   |  17 ++-
+ 3 files changed, 431 insertions(+), 24 deletions(-)
+
+diff --git a/autotests/drm/mockDrmTest.cpp b/autotests/drm/mockDrmTest.cpp
+index 1845038..c1b880c 100644
+--- a/autotests/drm/mockDrmTest.cpp
++++ b/autotests/drm/mockDrmTest.cpp
+@@ -17,6 +17,7 @@
+ #include "core/outputlayer.h"
+ #include "core/session.h"
+ #include "drm_backend.h"
++#include "drm_colorop.h"
+ #include "drm_connector.h"
+ #include "drm_crtc.h"
+ #include "drm_egl_backend.h"
+@@ -31,8 +32,10 @@
+ #include "wayland/drmlease_v1.h"
+ #include "wayland/drmlease_v1_p.h"
+ 
++#include <array>
+ #include <drm_fourcc.h>
+ #include <fcntl.h>
++#include <ranges>
+ #include <sys/socket.h>
+ #include <sys/utsname.h>
+ 
+@@ -104,6 +107,148 @@ private Q_SLOTS:
+     void testLeaseDisconnectReconnect();
+     void testLeaseAvailableAfterMasterToggleAndClientExit();
+     void testLeaseAvailableWhenClientExitsBeforeQueuedReoffer();
++    void testNonBypassableNamedTransferFunctions();
++};
++
++class TestColorOp : public DrmAbstractColorOp
++{
++public:
++    enum class Kind {
++        Matrix,
++        Lut,
++        PqEotf,
++        PqInverseEotf,
++    };
++
++    TestColorOp(DrmAbstractColorOp *next, Kind kind, Features features)
++        : DrmAbstractColorOp(next, features, QStringLiteral("test color op"))
++        , m_kind(kind)
++    {
++    }
++
++    std::optional<Priority> colorOpPreference(const ColorOp::Operation &op) override
++    {
++        switch (m_kind) {
++        case Kind::Matrix:
++            if (std::holds_alternative<ColorMatrix>(op) || std::holds_alternative<ColorMultiplier>(op)) {
++                return Priority::Normal;
++            }
++            break;
++        case Kind::Lut:
++            if (std::holds_alternative<ColorTransferFunction>(op) || std::holds_alternative<InverseColorTransferFunction>(op)) {
++                return Priority::Normal;
++            }
++            break;
++        case Kind::PqEotf:
++            if (const auto tf = std::get_if<ColorTransferFunction>(&op); tf && tf->tf.type == TransferFunction::PerceptualQuantizer) {
++                return Priority::High;
++            }
++            break;
++        case Kind::PqInverseEotf:
++            if (const auto tf = std::get_if<InverseColorTransferFunction>(&op); tf && tf->tf.type == TransferFunction::PerceptualQuantizer) {
++                return Priority::High;
++            }
++            break;
++        }
++        return std::nullopt;
++    }
++
++    void program(DrmAtomicCommit *commit, const std::deque<ColorOp::Operation> &operations) override
++    {
++        if (m_kind == Kind::PqEotf || m_kind == Kind::PqInverseEotf) {
++            const auto curve = std::ranges::find_if(operations, [](const ColorOp::Operation &operation) {
++                return std::holds_alternative<ColorTransferFunction>(operation)
++                    || std::holds_alternative<InverseColorTransferFunction>(operation);
++            });
++            if (curve != operations.end()) {
++                // Named DRM curves select a fixed hardware function; their
++                // luminance parameters are not programmable. Mirror the PQ
++                // 125 behavior of DrmNamed1DLut::program().
++                const TransferFunction fixedPq(TransferFunction::PerceptualQuantizer, 0, 125);
++                m_programmed.push_back(m_kind == Kind::PqEotf
++                                           ? ColorOp::Operation(ColorTransferFunction(fixedPq))
++                                           : ColorOp::Operation(InverseColorTransferFunction(fixedPq)));
++            }
++        } else {
++            m_programmed = operations;
++        }
++    }
++
++    void bypass(DrmAtomicCommit *commit) override
++    {
++        m_bypassed = true;
++        m_invalidBypass = !canBypass();
++    }
++
++    std::optional<Scaling> inputScaling(const ColorOp &op) const override
++    {
++        if (m_kind != Kind::PqInverseEotf) {
++            return std::nullopt;
++        }
++        const auto tf = std::get_if<InverseColorTransferFunction>(&op.operation);
++        if (!tf) {
++            return std::nullopt;
++        }
++        QMatrix4x4 matrix;
++        matrix.scale(125.0);
++        matrix.scale(1.0 / (tf->tf.maxLuminance - tf->tf.minLuminance));
++        matrix.translate(-tf->tf.minLuminance, -tf->tf.minLuminance, -tf->tf.minLuminance);
++        const auto normalized = matrix.map(QVector3D(op.input.min, op.input.max, 0));
++        return Scaling{
++            .scaling = ColorMatrix(matrix.inverted()),
++            .inverse = ColorOp{
++                .input = op.input,
++                .inputSpace = op.inputSpace,
++                .operation = ColorMatrix(matrix),
++                .output = ValueRange{.min = normalized.x(), .max = normalized.y()},
++                .outputSpace = ColorspaceType::AnyNonRGB,
++            },
++        };
++    }
++
++    std::optional<Scaling> bypassScaling(const ColorOp &nextOperation) const override
++    {
++        if (m_kind != Kind::PqInverseEotf) {
++            return std::nullopt;
++        }
++        const TransferFunction transfer(TransferFunction::PerceptualQuantizer, nextOperation.input.min, nextOperation.input.max);
++        return Scaling{
++            .scaling = InverseColorTransferFunction(transfer),
++            .inverse = ColorOp{
++                .input = ValueRange{.min = 0, .max = 1},
++                .inputSpace = ColorspaceType::NonLinearRGB,
++                .operation = ColorTransferFunction(transfer),
++                .output = nextOperation.input,
++                .outputSpace = nextOperation.inputSpace,
++            },
++        };
++    }
++
++    std::optional<Scaling> bypassOutputScaling(const ColorOp &lastAppliedOp) const override
++    {
++        if (m_kind != Kind::PqEotf || lastAppliedOp.output.min < 0 || lastAppliedOp.output.max > 125) {
++            return std::nullopt;
++        }
++        const TransferFunction transfer(TransferFunction::PerceptualQuantizer, 0, 125);
++        return Scaling{
++            .scaling = ColorTransferFunction(transfer),
++            .inverse = ColorOp{
++                .input = lastAppliedOp.output,
++                .inputSpace = lastAppliedOp.outputSpace,
++                .operation = InverseColorTransferFunction(transfer),
++                .output = ValueRange{
++                    .min = transfer.nitsToEncoded(lastAppliedOp.output.min),
++                    .max = transfer.nitsToEncoded(lastAppliedOp.output.max),
++                },
++                .outputSpace = ColorspaceType::NonLinearRGB,
++            },
++        };
++    }
++
++    Kind m_kind;
++    std::deque<ColorOp::Operation> m_programmed;
++    bool m_bypassed = false;
++    bool m_invalidBypass = false;
+ };
+ 
+ static void verifyCleanup(MockGpu *mockGpu)
+@@ -730,5 +875,86 @@ void DrmTest::testLeaseAvailableWhenClientExitsBeforeQueuedReoffer()
+     verifyCleanup(mockGpu.get());
+ }
+ 
++void DrmTest::testNonBypassableNamedTransferFunctions()
++{
++    const auto mockGpu = findPrimaryDevice(0);
++    QVERIFY(mockGpu);
++    const auto session = Session::create(Session::Type::Noop);
++    const auto backend = std::make_unique<DrmBackend>(session.get());
++    auto gpu = std::make_unique<DrmGpu>(backend.get(), mockGpu->fd, DrmDevice::open(mockGpu->devNode));
++
++    using Feature = DrmAbstractColorOp::Feature;
++    const auto matrixFeatures = DrmAbstractColorOp::Features{Feature::Bypass} | Feature::MultipleOps;
++    const auto lutFeatures = DrmAbstractColorOp::Features{Feature::Bypass} | Feature::MultipleOps;
++
++    // This is the relevant center of NVIDIA Full:
++    // programmable matrix -> mandatory PQ^-1 -> programmable LUT ->
++    // mandatory PQ -> programmable matrix.
++    auto tailMatrix = std::make_unique<TestColorOp>(nullptr, TestColorOp::Kind::Matrix, matrixFeatures);
++    auto pqEotf = std::make_unique<TestColorOp>(tailMatrix.get(), TestColorOp::Kind::PqEotf, DrmAbstractColorOp::Features{});
++    auto lut = std::make_unique<TestColorOp>(pqEotf.get(), TestColorOp::Kind::Lut, lutFeatures);
++    auto pqInverseEotf = std::make_unique<TestColorOp>(lut.get(), TestColorOp::Kind::PqInverseEotf, DrmAbstractColorOp::Features{});
++    auto headMatrix = std::make_unique<TestColorOp>(pqInverseEotf.get(), TestColorOp::Kind::Matrix, matrixFeatures);
++
++    constexpr double minimum = -0.564198375;
++    constexpr double maximum = 232.232208252;
++    ColorPipeline requested(ValueRange{.min = minimum, .max = maximum}, ColorspaceType::LinearRGB);
++    requested.addInverseTransferFunction(TransferFunction(TransferFunction::gamma22, 0, 325.125081539), ColorspaceType::NonLinearRGB);
++
++    QVERIFY(headMatrix->matchPipeline(gpu.get(), requested));
++    QVERIFY(!pqInverseEotf->m_bypassed);
++    QVERIFY(!pqEotf->m_bypassed);
++    QVERIFY(!pqInverseEotf->m_invalidBypass);
++    QVERIFY(!pqEotf->m_invalidBypass);
++    QCOMPARE(pqInverseEotf->m_programmed.size(), 1);
++    QCOMPARE(pqEotf->m_programmed.size(), 1);
++    QCOMPARE(lut->m_programmed.size(), 3);
++
++    const auto firstPq = std::get_if<InverseColorTransferFunction>(&pqInverseEotf->m_programmed.front());
++    QVERIFY(firstPq);
++    QCOMPARE(firstPq->tf.minLuminance, 0.0);
++    QCOMPARE(firstPq->tf.maxLuminance, 125.0);
++    const auto lastPq = std::get_if<ColorTransferFunction>(&pqEotf->m_programmed.front());
++    QVERIFY(lastPq);
++    QCOMPARE(lastPq->tf.minLuminance, 0.0);
++    QCOMPARE(lastPq->tf.maxLuminance, 125.0);
++
++    const std::array<TestColorOp *, 5> hardware = {
++        headMatrix.get(),
++        pqInverseEotf.get(),
++        lut.get(),
++        pqEotf.get(),
++        tailMatrix.get(),
++    };
++    const std::array<double, 9> samples = {
++        minimum,
++        -0.001,
++        0.0,
++        0.01,
++        1.0,
++        80.0,
++        125.0,
++        200.0,
++        maximum,
++    };
++    for (const double sample : samples) {
++        QVector3D actual(sample, sample, sample);
++        for (const auto operation : hardware) {
++            for (const auto &programmed : operation->m_programmed) {
++                actual = ColorOp::applyOperation(programmed, actual);
++            }
++        }
++        const QVector3D expected = requested.evaluate(QVector3D(sample, sample, sample));
++        QVERIFY2((actual - expected).length() < 0.00001,
++                 qPrintable(QStringLiteral("sample %1: actual %2, expected %3")
++                                .arg(sample, 0, 'f', 9)
++                                .arg(actual.x(), 0, 'f', 9)
++                                .arg(expected.x(), 0, 'f', 9)));
++    }
++
++    gpu.reset();
++    verifyCleanup(mockGpu.get());
++}
++
+ QTEST_GUILESS_MAIN(DrmTest)
+ #include "mockDrmTest.moc"
+diff --git a/src/backends/drm/drm_colorop.cpp b/src/backends/drm/drm_colorop.cpp
+index d7ebf1c..671c8d1 100644
+--- a/src/backends/drm/drm_colorop.cpp
++++ b/src/backends/drm/drm_colorop.cpp
+@@ -10,6 +10,7 @@
+ #include "drm_blob.h"
+ #include "drm_commit.h"
+ #include "drm_gpu.h"
++#include "drm_logging.h"
+ #include "drm_object.h"
+ #include "utils/envvar.h"
+ 
+@@ -56,6 +57,7 @@ struct Assignments
+     std::optional<ColorOp> nextInverseInputScaling;
+     DrmAbstractColorOp *nextHardwareOp = nullptr;
+     std::unordered_map<DrmAbstractColorOp *, std::deque<ColorOp::Operation>> assignments;
++    bool compensatedNonBypassable = false;
+ };
+ 
+ static bool backpropagateNextInputScaling(DrmAbstractColorOp *hardwareOp, DrmAbstractColorOp *previousHardwareOp, Assignments &assignments)
+@@ -104,7 +106,7 @@ static bool backpropagateNextInputScaling(DrmAbstractColorOp *hardwareOp, DrmAbs
+ }
+ 
+ // for an explanation of the algorithm, see "drm color operations.md"
+-static std::optional<Assignments> findColorPipelineAssignments(DrmAbstractColorOp *hardwareOp, DrmAbstractColorOp *previousHardwareOp, std::span<const ColorOp> ops, const std::optional<ColorOp> &previousInverseOutputScaling)
++static std::optional<Assignments> findColorPipelineAssignments(DrmAbstractColorOp *hardwareOp, DrmAbstractColorOp *previousHardwareOp, std::span<const ColorOp> ops, const std::optional<ColorOp> &previousInverseOutputScaling, const ColorOp *lastAppliedOp)
+ {
+     const ColorOp *currentColorOp = nullptr;
+     std::span<const ColorOp> nextOps;
+@@ -114,19 +116,34 @@ static std::optional<Assignments> findColorPipelineAssignments(DrmAbstractColorO
+         currentColorOp = &*previousInverseOutputScaling;
+         nextOps = ops;
+     } else if (ops.empty()) {
+-        DrmAbstractColorOp *next = hardwareOp;
+-        while (next) {
+-            if (!next->canBypass()) {
+-                return std::nullopt;
++        if (!hardwareOp) {
++            // we're done here, the whole pipeline is assigned!
++            return Assignments{
++                .nextInverseInputScaling = std::nullopt,
++                .nextHardwareOp = hardwareOp,
++                .assignments = {},
++            };
++        }
++        if (hardwareOp->canBypass()) {
++            auto ret = findColorPipelineAssignments(hardwareOp->next(), hardwareOp, ops, previousInverseOutputScaling, lastAppliedOp);
++            if (ret) {
++                backpropagateNextInputScaling(hardwareOp, previousHardwareOp, *ret);
+             }
+-            next = next->next();
++            return ret;
+         }
+-        // we're done here, the whole pipeline is assigned!
+-        return Assignments{
+-            .nextInverseInputScaling = std::nullopt,
+-            .nextHardwareOp = hardwareOp,
+-            .assignments = {},
+-        };
++        if (!previousInverseOutputScaling && lastAppliedOp) {
++            if (auto alternativeBypass = hardwareOp->bypassOutputScaling(*lastAppliedOp)) {
++                auto ret = findColorPipelineAssignments(hardwareOp->next(), hardwareOp, ops, std::nullopt, lastAppliedOp);
++                if (ret && !ret->nextInverseInputScaling) {
++                    ret->assignments[hardwareOp].push_front(alternativeBypass->scaling);
++                    ret->nextInverseInputScaling = alternativeBypass->inverse;
++                    ret->nextHardwareOp = hardwareOp;
++                    ret->compensatedNonBypassable = true;
++                    return ret;
++                }
++            }
++        }
++        return std::nullopt;
+     } else {
+         currentColorOp = &ops.front();
+         nextOps = ops.subspan(1);
+@@ -141,9 +158,31 @@ static std::optional<Assignments> findColorPipelineAssignments(DrmAbstractColorO
+     }
+     if (!preference) {
+         if (!hardwareOp->canBypass()) {
++            if (!previousInverseOutputScaling) {
++                if (auto alternativeBypass = hardwareOp->bypassScaling(*currentColorOp)) {
++                    const ColorOp hardwareBypass{
++                        .input = currentColorOp->input,
++                        .inputSpace = currentColorOp->inputSpace,
++                        .operation = alternativeBypass->scaling,
++                        .output = alternativeBypass->inverse.input,
++                        .outputSpace = alternativeBypass->inverse.inputSpace,
++                    };
++                    auto ret = findColorPipelineAssignments(hardwareOp->next(), hardwareOp, ops, alternativeBypass->inverse, &hardwareBypass);
++                    if (ret && !ret->nextInverseInputScaling) {
++                        ret->assignments[hardwareOp].push_front(alternativeBypass->scaling);
++                        if (const auto inputScaling = hardwareOp->inputScaling(hardwareBypass)) {
++                            ret->assignments[hardwareOp].push_front(inputScaling->scaling);
++                            ret->nextInverseInputScaling = inputScaling->inverse;
++                        }
++                        ret->nextHardwareOp = hardwareOp;
++                        ret->compensatedNonBypassable = true;
++                        return ret;
++                    }
++                }
++            }
+             return std::nullopt;
+         }
+-        auto ret = findColorPipelineAssignments(hardwareOp->next(), hardwareOp, ops, previousInverseOutputScaling);
++        auto ret = findColorPipelineAssignments(hardwareOp->next(), hardwareOp, ops, previousInverseOutputScaling, lastAppliedOp);
+         if (ret) {
+             backpropagateNextInputScaling(hardwareOp, previousHardwareOp, *ret);
+         }
+@@ -155,7 +194,7 @@ static std::optional<Assignments> findColorPipelineAssignments(DrmAbstractColorO
+         while (higherPreferenceOp) {
+             const auto higherPreference = higherPreferenceOp->colorOpPreference(currentColorOp->operation);
+             if (higherPreference.has_value() && *higherPreference > *preference) {
+-                if (auto ret = findColorPipelineAssignments(higherPreferenceOp, hardwareOp, ops, previousInverseOutputScaling)) {
++                if (auto ret = findColorPipelineAssignments(higherPreferenceOp, hardwareOp, ops, previousInverseOutputScaling, lastAppliedOp)) {
+                     backpropagateNextInputScaling(hardwareOp, previousHardwareOp, *ret);
+                     return ret;
+                 } else {
+@@ -173,14 +212,14 @@ static std::optional<Assignments> findColorPipelineAssignments(DrmAbstractColorO
+     // before doing anything with it though, figure out if the other operations can be applied as well
+     const auto outputScaling = hardwareOp->outputScaling(*currentColorOp);
+     auto nextHardwareOp = hardwareOp->supportsMultipleOps() ? hardwareOp : hardwareOp->next();
+-    auto ret = findColorPipelineAssignments(nextHardwareOp, hardwareOp, nextOps, outputScaling ? std::optional(outputScaling->inverse) : std::nullopt);
++    auto ret = findColorPipelineAssignments(nextHardwareOp, hardwareOp, nextOps, outputScaling ? std::optional(outputScaling->inverse) : std::nullopt, currentColorOp);
+     if (!ret) {
+         if (!nextHardwareOp) {
+             return std::nullopt;
+         }
+         // in some cases, skipping hardware ops can find working configurations
+         // as some hardware ops can only operate on specific color spaces
+-        if (auto ret = findColorPipelineAssignments(nextHardwareOp->next(), nextHardwareOp, ops, previousInverseOutputScaling)) {
++        if (auto ret = findColorPipelineAssignments(nextHardwareOp->next(), nextHardwareOp, ops, previousInverseOutputScaling, lastAppliedOp)) {
+             backpropagateNextInputScaling(hardwareOp, previousHardwareOp, *ret);
+             return ret;
+         } else {
+@@ -266,11 +305,14 @@ bool DrmAbstractColorOp::matchPipeline(DrmGpu *gpu, const ColorPipeline &pipelin
+     }
+ 
+     // first, search for the most optimal pipeline, without calculating LUTs
+-    const auto ret = findColorPipelineAssignments(this, nullptr, pipeline.ops, std::nullopt);
++    const auto ret = findColorPipelineAssignments(this, nullptr, pipeline.ops, std::nullopt, nullptr);
+     if (!ret || ret->nextInverseInputScaling) {
+         m_cachedPipelineFail = pipeline;
+         return false;
+     }
++    if (ret->compensatedNonBypassable) {
++        qCDebug(KWIN_DRM) << "Compensating non-bypassable DRM color operations for direct scanout";
++    }
+ 
+     // now actually program the properties
+     m_cache = std::make_unique<DrmAtomicCommit>(gpu);
+@@ -299,6 +341,16 @@ std::optional<DrmAbstractColorOp::Scaling> DrmAbstractColorOp::outputScaling(con
+     return std::nullopt;
+ }
+ 
++std::optional<DrmAbstractColorOp::Scaling> DrmAbstractColorOp::bypassScaling(const ColorOp &op) const
++{
++    return std::nullopt;
++}
++
++std::optional<DrmAbstractColorOp::Scaling> DrmAbstractColorOp::bypassOutputScaling(const ColorOp &op) const
++{
++    return std::nullopt;
++}
++
+ bool DrmAbstractColorOp::canBeInputOrOutput(ColorspaceType type) const
+ {
+     return true;
+@@ -628,9 +680,15 @@ void LegacyMatrixColorOp::program(DrmAtomicCommit *commit, const std::deque<Colo
+     }
+     drm_color_ctm data = {
+         .matrix = {
+-            doubleToFixed(result(0, 0)), doubleToFixed(result(0, 1)), doubleToFixed(result(0, 2)), //
+-            doubleToFixed(result(1, 0)), doubleToFixed(result(1, 1)), doubleToFixed(result(1, 2)), //
+-            doubleToFixed(result(2, 0)), doubleToFixed(result(2, 1)), doubleToFixed(result(2, 2)), //
++            doubleToFixed(result(0, 0)),
++            doubleToFixed(result(0, 1)),
++            doubleToFixed(result(0, 2)), //
++            doubleToFixed(result(1, 0)),
++            doubleToFixed(result(1, 1)),
++            doubleToFixed(result(1, 2)), //
++            doubleToFixed(result(2, 0)),
++            doubleToFixed(result(2, 1)),
++            doubleToFixed(result(2, 2)), //
+         },
+     };
+     commit->addBlob(*m_prop, DrmBlob::create(m_prop->drmObject()->gpu(), &data, sizeof(data)));
+@@ -682,9 +740,18 @@ void Matrix3x4ColorOp::program(DrmAtomicCommit *commit, const std::deque<ColorOp
+         }
+     }
+     std::array<uint64_t, 12> data = {
+-        doubleToFixed(result(0, 0)), doubleToFixed(result(0, 1)), doubleToFixed(result(0, 2)), doubleToFixed(result(0, 3)), //
+-        doubleToFixed(result(1, 0)), doubleToFixed(result(1, 1)), doubleToFixed(result(1, 2)), doubleToFixed(result(1, 3)), //
+-        doubleToFixed(result(2, 0)), doubleToFixed(result(2, 1)), doubleToFixed(result(2, 2)), doubleToFixed(result(2, 3)), //
++        doubleToFixed(result(0, 0)),
++        doubleToFixed(result(0, 1)),
++        doubleToFixed(result(0, 2)),
++        doubleToFixed(result(0, 3)), //
++        doubleToFixed(result(1, 0)),
++        doubleToFixed(result(1, 1)),
++        doubleToFixed(result(1, 2)),
++        doubleToFixed(result(1, 3)), //
++        doubleToFixed(result(2, 0)),
++        doubleToFixed(result(2, 1)),
++        doubleToFixed(result(2, 2)),
++        doubleToFixed(result(2, 3)), //
+     };
+     commit->addBlob(*m_prop, DrmBlob::create(m_prop->drmObject()->gpu(), data.data(), sizeof(uint64_t) * data.size()));
+     if (m_bypass) {
+@@ -1048,6 +1115,105 @@ std::optional<DrmAbstractColorOp::Scaling> DrmNamed1DLut::outputScaling(const Co
+     }
+ }
+ 
++static std::optional<std::pair<TransferFunction::Type, bool>> pickSupportedFunction(DrmEnumProperty<Named1DLutType> *property)
++{
++    // Color pipeline descriptions normally expose only one choice per mandatory
++    // named curve. Keep the order deterministic if a driver exposes more.
++    if (property->hasEnum(Named1DLutType::PQ_125)) {
++        return std::make_pair(TransferFunction::PerceptualQuantizer, false);
++    } else if (property->hasEnum(Named1DLutType::PQ_125_Inverse)) {
++        return std::make_pair(TransferFunction::PerceptualQuantizer, true);
++    } else if (property->hasEnum(Named1DLutType::sRGB)) {
++        return std::make_pair(TransferFunction::sRGB, false);
++    } else if (property->hasEnum(Named1DLutType::sRGB_Inverse)) {
++        return std::make_pair(TransferFunction::sRGB, true);
++    } else if (property->hasEnum(Named1DLutType::gamma22)) {
++        return std::make_pair(TransferFunction::gamma22, false);
++    } else if (property->hasEnum(Named1DLutType::gamma22_Inverse)) {
++        return std::make_pair(TransferFunction::gamma22, true);
++    }
++    return std::nullopt;
++}
++
++static double namedTransferFunctionScale(TransferFunction::Type type)
++{
++    // DRM's PQ 125 curve maps code value 1 to 125. The other named curves are
++    // normalized to one. DrmNamed1DLut::inputScaling/outputScaling use the same
++    // convention.
++    return type == TransferFunction::PerceptualQuantizer ? 125.0 : 1.0;
++}
++
++std::optional<DrmAbstractColorOp::Scaling> DrmNamed1DLut::bypassScaling(const ColorOp &nextOperation) const
++{
++    const auto function = pickSupportedFunction(m_value);
++    if (!function) {
++        return std::nullopt;
++    }
++    const auto [type, inverse] = *function;
++    const double scale = namedTransferFunctionScale(type);
++    if (!inverse && (nextOperation.input.min < -ColorPipeline::s_maxResolution || nextOperation.input.max > 1.0 + ColorPipeline::s_maxResolution)) {
++        // An EOTF cannot losslessly consume values outside its encoded domain.
++        return std::nullopt;
++    }
++    if (inverse && nextOperation.input.max - nextOperation.input.min < ColorPipeline::s_maxResolution) {
++        return std::nullopt;
++    }
++
++    // For inverse curves, describe the transfer function with the actual input
++    // range. inputScaling() then folds the normalization required by the fixed
++    // DRM curve into an earlier programmable block. This preserves negative
++    // minima and ranges larger than PQ 125 without clipping.
++    const TransferFunction transfer(type,
++                                    inverse ? nextOperation.input.min : 0.0,
++                                    inverse ? nextOperation.input.max : scale);
++    const ValueRange hardwareOutput{
++        .min = inverse ? transfer.nitsToEncoded(nextOperation.input.min) : transfer.encodedToNits(nextOperation.input.min),
++        .max = inverse ? transfer.nitsToEncoded(nextOperation.input.max) : transfer.encodedToNits(nextOperation.input.max),
++    };
++    return Scaling{
++        .scaling = inverse ? ColorOp::Operation(InverseColorTransferFunction(transfer)) : ColorOp::Operation(ColorTransferFunction(transfer)),
++        .inverse = ColorOp{
++            .input = hardwareOutput,
++            .inputSpace = inverse ? ColorspaceType::NonLinearRGB : ColorspaceType::LinearRGB,
++            .operation = inverse ? ColorOp::Operation(ColorTransferFunction(transfer)) : ColorOp::Operation(InverseColorTransferFunction(transfer)),
++            .output = nextOperation.input,
++            .outputSpace = nextOperation.inputSpace,
++        },
++    };
++}
++
++std::optional<DrmAbstractColorOp::Scaling> DrmNamed1DLut::bypassOutputScaling(const ColorOp &lastAppliedOp) const
++{
++    const auto function = pickSupportedFunction(m_value);
++    if (!function) {
++        return std::nullopt;
++    }
++    const auto [type, inverse] = *function;
++    const double scale = namedTransferFunctionScale(type);
++    const double maximumOutput = inverse ? 1.0 : scale;
++    if (lastAppliedOp.output.min < -ColorPipeline::s_maxResolution || lastAppliedOp.output.max > maximumOutput + ColorPipeline::s_maxResolution) {
++        // There is no later block in this path to restore values clipped by the
++        // mandatory transfer function.
++        return std::nullopt;
++    }
++
++    const TransferFunction transfer(type, 0.0, scale);
++    const ValueRange hardwareInput{
++        .min = inverse ? transfer.encodedToNits(lastAppliedOp.output.min) : transfer.nitsToEncoded(lastAppliedOp.output.min),
++        .max = inverse ? transfer.encodedToNits(lastAppliedOp.output.max) : transfer.nitsToEncoded(lastAppliedOp.output.max),
++    };
++    return Scaling{
++        .scaling = inverse ? ColorOp::Operation(InverseColorTransferFunction(transfer)) : ColorOp::Operation(ColorTransferFunction(transfer)),
++        .inverse = ColorOp{
++            .input = lastAppliedOp.output,
++            .inputSpace = lastAppliedOp.outputSpace,
++            .operation = inverse ? ColorOp::Operation(ColorTransferFunction(transfer)) : ColorOp::Operation(InverseColorTransferFunction(transfer)),
++            .output = hardwareInput,
++            .outputSpace = inverse ? ColorspaceType::LinearRGB : ColorspaceType::NonLinearRGB,
++        },
++    };
++}
++
+ DrmColorOp::DrmColorOp(DrmGpu *gpu, uint32_t objectId)
+     : DrmObject(gpu, objectId, DRM_MODE_OBJECT_ANY)
+     , m_next(this, QByteArrayLiteral("NEXT"))
+diff --git a/src/backends/drm/drm_colorop.h b/src/backends/drm/drm_colorop.h
+index 66824e2..7c3ad7a 100644
+--- a/src/backends/drm/drm_colorop.h
++++ b/src/backends/drm/drm_colorop.h
+@@ -87,6 +87,19 @@ public:
+      */
+     virtual std::optional<Scaling> outputScaling(const ColorOp &lastAppliedOp) const;
+ 
++    /**
++     * @returns a mandatory operation and its inverse for effectively bypassing
++     *          this colorop before @p nextOperation. The mandatory operation is
++     *          programmed in this colorop and the inverse is applied later.
++     */
++    virtual std::optional<Scaling> bypassScaling(const ColorOp &nextOperation) const;
++    /**
++     * @returns a mandatory operation and its inverse for effectively bypassing
++     *          this colorop after @p lastAppliedOp. The inverse is applied in an
++     *          earlier colorop and the mandatory operation is programmed here.
++     */
++    virtual std::optional<Scaling> bypassOutputScaling(const ColorOp &lastAppliedOp) const;
++
+     DrmAbstractColorOp *next() const;
+     bool canBypass() const;
+     bool supportsMultipleOps() const;
+@@ -239,7 +252,7 @@ enum class Named1DLutType {
+     PQ_125,
+     PQ_125_Inverse,
+     gamma22,
+-    gamma22_Inverse
++    gamma22_Inverse,
+ };
+ 
+ class DrmNamed1DLut : public DrmAbstractColorOp
+@@ -252,6 +265,8 @@ public:
+     void bypass(DrmAtomicCommit *commit) override;
+     std::optional<Scaling> inputScaling(const ColorOp &op) const override;
+     std::optional<Scaling> outputScaling(const ColorOp &op) const override;
++    std::optional<Scaling> bypassScaling(const ColorOp &nextOperation) const override;
++    std::optional<Scaling> bypassOutputScaling(const ColorOp &lastAppliedOp) const override;
+ 
+ private:
+     std::optional<Named1DLutType> getType(const ColorOp::Operation &op) const;
+-- 
+2.55.0

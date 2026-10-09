@@ -1,0 +1,32 @@
+name: Bug / regression
+description: Report apply/build failures, crashes, freezes, warnings or other regressions.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: identity
+    attributes:
+      label: Patch and build identity
+      description: Collection commit, patch set and series/filenames, upstream base, build command, active package/kernel, scheduler arguments and any local changes.
+    validations:
+      required: true
+  - type: textarea
+    id: system
+    attributes:
+      label: System
+      description: Distribution, uname -r, CPU, GPU/driver, desktop/session, display and affected game or application versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduce and compare
+      description: Exact steps, expected/actual behavior, frequency, and whether it also happens on the stock build or with the feature disabled.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and recovery
+      description: Attach the failing command output, relevant crash/warning logs and rollback outcome. For a previous-boot kernel failure, include journalctl -b -1 -k if available. Remove personal information before posting.
+    validations:
+      required: true

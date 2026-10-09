@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title desc">
+<title id="title">Stock versus cadence-derived VRR repaint fallback ceiling</title>
+<desc id="desc">Stock KWin uses a 33.33 millisecond fallback. On a 240 hertz output, the candidate ceiling follows measured foreground cadence down to the 4.17 millisecond physical output interval. Foreground game damage remains immediate in both designs.</desc>
+<style>
+    .bg { fill: #ffffff; }
+    .text { fill: #1f2328; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .muted { fill: #59636e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .grid { stroke: #d0d7de; stroke-width: 1; }
+    .axis { stroke: #8c959f; stroke-width: 1.5; }
+    .baseline { fill: #8c959f; }
+    .adaptive { fill: #0969da; }
+    .adaptive-line { fill: none; stroke: #0969da; stroke-width: 3; }
+    .stock-line { fill: none; stroke: #8c959f; stroke-width: 3; stroke-dasharray: 8 6; }
+    .timer { fill: #8250df; }
+    .event { stroke: #cf222e; stroke-width: 2; }
+    .frame { fill: #8c959f; opacity: 0.45; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .text { fill: #f0f6fc; }
+      .muted { fill: #9da7b3; }
+      .grid { stroke: #30363d; }
+      .axis { stroke: #6e7681; }
+      .baseline { fill: #6e7681; }
+      .adaptive { fill: #58a6ff; }
+      .adaptive-line { stroke: #58a6ff; }
+      .stock-line { stroke: #9da7b3; }
+      .timer { fill: #a371f7; }
+      .event { stroke: #ff7b72; }
+      .frame { fill: #6e7681; opacity: 0.55; }
+    }
+</style>
+<rect class="bg" width="960" height="430"/>
+<text class="text" x="40" y="42" font-size="24" text-anchor="start" font-weight="500">VRR unrelated-damage fallback ceiling</text>
+<text class="muted" x="40" y="70" font-size="15" text-anchor="start" font-weight="400">240 Hz output; actual foreground damage is immediate in both designs</text>
+<line class="grid" x1="88" y1="340.0" x2="905" y2="340.0"/>
+<text class="muted" x="76" y="344.0" font-size="12" text-anchor="end" font-weight="400">0</text>
+<line class="grid" x1="88" y1="306.4" x2="905" y2="306.4"/>
+<text class="muted" x="76" y="310.42857142857144" font-size="12" text-anchor="end" font-weight="400">5</text>
+<line class="grid" x1="88" y1="272.9" x2="905" y2="272.9"/>
+<text class="muted" x="76" y="276.8571428571429" font-size="12" text-anchor="end" font-weight="400">10</text>
+<line class="grid" x1="88" y1="239.3" x2="905" y2="239.3"/>
+<text class="muted" x="76" y="243.28571428571428" font-size="12" text-anchor="end" font-weight="400">15</text>
+<line class="grid" x1="88" y1="205.7" x2="905" y2="205.7"/>
+<text class="muted" x="76" y="209.71428571428572" font-size="12" text-anchor="end" font-weight="400">20</text>
+<line class="grid" x1="88" y1="172.1" x2="905" y2="172.1"/>
+<text class="muted" x="76" y="176.14285714285714" font-size="12" text-anchor="end" font-weight="400">25</text>
+<line class="grid" x1="88" y1="138.6" x2="905" y2="138.6"/>
+<text class="muted" x="76" y="142.57142857142858" font-size="12" text-anchor="end" font-weight="400">30</text>
+<line class="grid" x1="88" y1="105.0" x2="905" y2="105.0"/>
+<text class="muted" x="76" y="109.0" font-size="12" text-anchor="end" font-weight="400">35</text>
+<line class="grid" x1="88.0" y1="105" x2="88.0" y2="340"/>
+<text class="muted" x="88.0" y="365" font-size="12" text-anchor="middle" font-weight="400">30</text>
+<line class="grid" x1="224.2" y1="105" x2="224.2" y2="340"/>
+<text class="muted" x="224.16666666666666" y="365" font-size="12" text-anchor="middle" font-weight="400">60</text>
+<line class="grid" x1="360.3" y1="105" x2="360.3" y2="340"/>
+<text class="muted" x="360.3333333333333" y="365" font-size="12" text-anchor="middle" font-weight="400">120</text>
+<line class="grid" x1="496.5" y1="105" x2="496.5" y2="340"/>
+<text class="muted" x="496.5" y="365" font-size="12" text-anchor="middle" font-weight="400">144</text>
+<line class="grid" x1="632.7" y1="105" x2="632.7" y2="340"/>
+<text class="muted" x="632.6666666666666" y="365" font-size="12" text-anchor="middle" font-weight="400">240</text>
+<line class="grid" x1="768.8" y1="105" x2="768.8" y2="340"/>
+<text class="muted" x="768.8333333333334" y="365" font-size="12" text-anchor="middle" font-weight="400">360</text>
+<line class="grid" x1="905.0" y1="105" x2="905.0" y2="340"/>
+<text class="muted" x="905.0" y="365" font-size="12" text-anchor="middle" font-weight="400">480</text>
+<path class="stock-line" d="M 88.0 118.4 L 224.2 118.4 L 360.3 118.4 L 496.5 118.4 L 632.7 118.4 L 768.8 118.4 L 905.0 118.4"/>
+<path class="adaptive-line" d="M 88.0 116.2 L 224.2 228.1 L 360.3 284.0 L 496.5 293.4 L 632.7 312.0 L 768.8 312.0 L 905.0 312.0"/>
+<circle class="adaptive" cx="88.0" cy="116.2" r="4"/>
+<circle class="adaptive" cx="224.2" cy="228.1" r="4"/>
+<circle class="adaptive" cx="360.3" cy="284.0" r="4"/>
+<circle class="adaptive" cx="496.5" cy="293.4" r="4"/>
+<circle class="adaptive" cx="632.7" cy="312.0" r="4"/>
+<circle class="adaptive" cx="768.8" cy="312.0" r="4"/>
+<circle class="adaptive" cx="905.0" cy="312.0" r="4"/>
+<text class="muted" x="900" y="108.42857142857142" font-size="13" text-anchor="end" font-weight="500">Stock: 33.00 ms</text>
+<text class="text" x="900" y="302.02380728571427" font-size="13" text-anchor="end" font-weight="500">Candidate: 4.17 ms floor</text>
+<text class="muted" x="496.5" y="398" font-size="13" text-anchor="middle" font-weight="400">Measured active-surface cadence (FPS)</text>
+<text class="muted" x="25" y="222.5" font-size="13" text-anchor="middle" transform="rotate(-90 25 222.5)">Fallback ceiling (ms)</text>
+<text class="muted" x="40" y="412" font-size="12" text-anchor="start" font-weight="400">Continuous game damage normally cancels either fallback before it expires; this targets stalls and transition tails.</text>
+</svg>

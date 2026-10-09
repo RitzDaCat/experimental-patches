@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="410" viewBox="0 0 960 410" role="img" aria-labelledby="title desc">
+<title id="title">Fixed compositor reserve versus offline adaptive replay</title>
+<desc id="desc">The fixed reserve is 1000 microseconds. Offline replay settles at 160 microseconds for the primary trace and 231 microseconds for the secondary trace.</desc>
+<style>
+    .bg { fill: #ffffff; }
+    .text { fill: #1f2328; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .muted { fill: #59636e; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .grid { stroke: #d0d7de; stroke-width: 1; }
+    .axis { stroke: #8c959f; stroke-width: 1.5; }
+    .baseline { fill: #8c959f; }
+    .adaptive { fill: #0969da; }
+    .adaptive-line { fill: none; stroke: #0969da; stroke-width: 3; }
+    .stock-line { fill: none; stroke: #8c959f; stroke-width: 3; stroke-dasharray: 8 6; }
+    .timer { fill: #8250df; }
+    .event { stroke: #cf222e; stroke-width: 2; }
+    .frame { fill: #8c959f; opacity: 0.45; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .text { fill: #f0f6fc; }
+      .muted { fill: #9da7b3; }
+      .grid { stroke: #30363d; }
+      .axis { stroke: #6e7681; }
+      .baseline { fill: #6e7681; }
+      .adaptive { fill: #58a6ff; }
+      .adaptive-line { stroke: #58a6ff; }
+      .stock-line { stroke: #9da7b3; }
+      .timer { fill: #a371f7; }
+      .event { stroke: #ff7b72; }
+      .frame { fill: #6e7681; opacity: 0.55; }
+    }
+</style>
+<rect class="bg" width="960" height="410"/>
+<text class="text" x="40" y="42" font-size="24" text-anchor="start" font-weight="500">Compositor wake reserve</text>
+<text class="muted" x="40" y="70" font-size="15" text-anchor="start" font-weight="400">Fixed baseline compared with preliminary offline v2 replay</text>
+<text class="muted" x="40" y="94" font-size="13" text-anchor="start" font-weight="400">Legacy capture schema; illustrative controller output, not a live latency benchmark</text>
+<line class="grid" x1="230.0" y1="113" x2="230.0" y2="340"/>
+<text class="muted" x="230.0" y="366" font-size="12" text-anchor="middle" font-weight="400">0</text>
+<line class="grid" x1="395.0" y1="113" x2="395.0" y2="340"/>
+<text class="muted" x="395.0" y="366" font-size="12" text-anchor="middle" font-weight="400">250</text>
+<line class="grid" x1="560.0" y1="113" x2="560.0" y2="340"/>
+<text class="muted" x="560.0" y="366" font-size="12" text-anchor="middle" font-weight="400">500</text>
+<line class="grid" x1="725.0" y1="113" x2="725.0" y2="340"/>
+<text class="muted" x="725.0" y="366" font-size="12" text-anchor="middle" font-weight="400">750</text>
+<line class="grid" x1="890.0" y1="113" x2="890.0" y2="340"/>
+<text class="muted" x="890.0" y="366" font-size="12" text-anchor="middle" font-weight="400">1000</text>
+<text class="muted" x="560.0" y="392" font-size="13" text-anchor="middle" font-weight="400">Wake reserve (microseconds)</text>
+<text class="text" x="212" y="150" font-size="14" text-anchor="end" font-weight="500">Fixed KWin reserve</text>
+<rect class="baseline" x="230" y="125" width="660.0" height="36" rx="4"/>
+<text class="text" x="902.0" y="149" font-size="14" text-anchor="start" font-weight="500">1000 us</text>
+<text class="text" x="212" y="218" font-size="14" text-anchor="end" font-weight="400">Primary trace replay</text>
+<rect class="adaptive" x="230" y="193" width="105.6" height="36" rx="4"/>
+<text class="text" x="347.6" y="217" font-size="14" text-anchor="start" font-weight="500">160 us</text>
+<text class="muted" x="347.6" y="236" font-size="12" text-anchor="start" font-weight="400">840 us less reserve</text>
+<text class="text" x="212" y="286" font-size="14" text-anchor="end" font-weight="400">Secondary trace replay</text>
+<rect class="adaptive" x="230" y="261" width="152.5" height="36" rx="4"/>
+<text class="text" x="394.46000000000004" y="285" font-size="14" text-anchor="start" font-weight="500">231 us</text>
+<text class="muted" x="394.46000000000004" y="304" font-size="12" text-anchor="start" font-weight="400">769 us less reserve</text>
+</svg>

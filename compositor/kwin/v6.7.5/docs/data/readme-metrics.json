@@ -1,0 +1,16 @@
+{
+  "status": "preliminary_offline_replay",
+  "capture_date": "2026-07-17",
+  "capture_package": "kwin 6.7.3-3.4",
+  "capture_mode": "shadow",
+  "capture_schema": "legacy_without_dispatch_ids",
+  "fixed_margin_us": 1000,
+  "primary_replay_margin_us": 160,
+  "primary_valid_rows": 94435,
+  "secondary_replay_margin_us": 231,
+  "secondary_valid_rows": 22304,
+  "timer_quantization_mean_us": 500,
+  "display_240hz_interval_us": 4167,
+  "game_480fps_interval_us": 2083,
+  "claim_boundary": "Replay rows from the legacy schema may contain repeated frame completions. These values illustrate controller behavior and are not a live v2 latency benchmark."
+}

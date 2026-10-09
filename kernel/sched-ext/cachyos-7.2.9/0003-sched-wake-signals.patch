@@ -1,0 +1,651 @@
+Subject: [PATCH 3/4] sched: tag input and GPU-fence wakeups, expose IRQ time to sched_ext
+
+Base:   CachyOS release tarball cachyos-7.2.9-1 (Makefile 7.2.9).
+Order:  patch 3 of 4. Each patch assumes the ones before it.
+About:  why it exists and what to expect: README.md next to this file.
+
+Files:
+  include/linux/sched/wake_signal.h  wake-flag bits for the two causes (new)
+  kernel/sched/sched.h, core.c       record the cause on an accepted blocked
+                                     wake (try_to_wake_up(), wake_up_process())
+  kernel/sched/wait.c                carry it through __wake_up() and
+                                     __wake_up_locked_key()
+  fs/eventpoll.c, fs/eventfd.c,      forward it through epoll and eventfd
+  include/linux/eventfd.h
+  drivers/input/evdev.c              tag input wakes at SYN_REPORT
+  drivers/dma-buf/dma-fence.c,       tag fence-completion wakes
+  drivers/dma-buf/sync_file.c,
+  drivers/gpu/drm/drm_syncobj.c
+  include/linux/sched/ext.h          per-task token p->scx.wake_signal
+  kernel/sched/ext/ext.c, ext.h,     SCX_OPS_WAKE_SIGNAL (bit 9) opt-in, token
+  internal.h                         cleared at running, kfuncs
+                                     scx_bpf_task_wake_signal_v1() and
+                                     scx_bpf_cpu_irq_ns_v1()
+  Switch: scheduler opt-in. Cake: --kernel-signals observe|on.
+
+diff --git a/drivers/dma-buf/dma-fence.c b/drivers/dma-buf/dma-fence.c
+index 1037a81..fc1cc99 100644
+--- a/drivers/dma-buf/dma-fence.c
++++ b/drivers/dma-buf/dma-fence.c
+@@ -15,6 +15,7 @@
+ #include <linux/atomic.h>
+ #include <linux/dma-fence.h>
+ #include <linux/sched/signal.h>
++#include <linux/sched/wake_signal.h>
+ #include <linux/seq_file.h>
+ 
+ #define CREATE_TRACE_POINTS
+@@ -793,7 +794,7 @@ dma_fence_default_wait_cb(struct dma_fence *fence, struct dma_fence_cb *cb)
+ 	struct default_wait_cb *wait =
+ 		container_of(cb, struct default_wait_cb, base);
+ 
+-	wake_up_state(wait->task, TASK_NORMAL);
++	wake_up_state_signal(wait->task, TASK_NORMAL, WF_SCX_FENCE);
+ }
+ 
+ /**
+diff --git a/drivers/dma-buf/sync_file.c b/drivers/dma-buf/sync_file.c
+index 2166bbd..52abeb3 100644
+--- a/drivers/dma-buf/sync_file.c
++++ b/drivers/dma-buf/sync_file.c
+@@ -12,6 +12,7 @@
+ #include <linux/kernel.h>
+ #include <linux/poll.h>
+ #include <linux/sched.h>
++#include <linux/sched/wake_signal.h>
+ #include <linux/slab.h>
+ #include <linux/uaccess.h>
+ #include <linux/anon_inodes.h>
+@@ -50,7 +51,7 @@ static void fence_check_cb_func(struct dma_fence *f, struct dma_fence_cb *cb)
+ 
+ 	sync_file = container_of(cb, struct sync_file, cb);
+ 
+-	wake_up_all(&sync_file->wq);
++	__wake_up_flags(&sync_file->wq, TASK_NORMAL, 0, WF_SCX_FENCE, NULL);
+ }
+ 
+ /**
+@@ -204,7 +205,7 @@ static __poll_t sync_file_poll(struct file *file, poll_table *wait)
+ 	    !test_and_set_bit(POLL_ENABLED, &sync_file->flags)) {
+ 		if (dma_fence_add_callback(sync_file->fence, &sync_file->cb,
+ 					   fence_check_cb_func) < 0)
+-			wake_up_all(&sync_file->wq);
++			__wake_up_flags(&sync_file->wq, TASK_NORMAL, 0, WF_SCX_FENCE, NULL);
+ 	}
+ 
+ 	return dma_fence_is_signaled(sync_file->fence) ? EPOLLIN : 0;
+diff --git a/drivers/gpu/drm/drm_syncobj.c b/drivers/gpu/drm/drm_syncobj.c
+index c9dbf64..4c43183 100644
+--- a/drivers/gpu/drm/drm_syncobj.c
++++ b/drivers/gpu/drm/drm_syncobj.c
+@@ -199,6 +199,7 @@
+ #include <linux/file.h>
+ #include <linux/fs.h>
+ #include <linux/sched/signal.h>
++#include <linux/sched/wake_signal.h>
+ #include <linux/sync_file.h>
+ #include <linux/uaccess.h>
+ 
+@@ -1007,7 +1008,7 @@ static void syncobj_wait_fence_func(struct dma_fence *fence,
+ 	struct syncobj_wait_entry *wait =
+ 		container_of(cb, struct syncobj_wait_entry, fence_cb);
+ 
+-	wake_up_process(wait->task);
++	wake_up_state_signal(wait->task, TASK_NORMAL, WF_SCX_FENCE);
+ }
+ 
+ static void syncobj_wait_syncobj_func(struct drm_syncobj *syncobj,
+@@ -1412,7 +1413,7 @@ static void syncobj_eventfd_entry_fence_func(struct dma_fence *fence,
+ 	struct syncobj_eventfd_entry *entry =
+ 		container_of(cb, struct syncobj_eventfd_entry, fence_cb);
+ 
+-	eventfd_signal(entry->ev_fd_ctx);
++	eventfd_signal_mask_flags(entry->ev_fd_ctx, 0, WF_SCX_FENCE);
+ 	syncobj_eventfd_entry_free(entry);
+ }
+ 
+@@ -1452,7 +1453,7 @@ syncobj_eventfd_entry_func(struct drm_syncobj *syncobj,
+ 		ret = dma_fence_add_callback(fence, &entry->fence_cb,
+ 					     syncobj_eventfd_entry_fence_func);
+ 		if (ret == -ENOENT) {
+-			eventfd_signal(entry->ev_fd_ctx);
++			eventfd_signal_mask_flags(entry->ev_fd_ctx, 0, WF_SCX_FENCE);
+ 			syncobj_eventfd_entry_free(entry);
+ 		}
+ 	}
+diff --git a/drivers/input/evdev.c b/drivers/input/evdev.c
+index cc37779..032bc06 100644
+--- a/drivers/input/evdev.c
++++ b/drivers/input/evdev.c
+@@ -14,6 +14,7 @@
+ 
+ #include <linux/poll.h>
+ #include <linux/sched.h>
++#include <linux/sched/wake_signal.h>
+ #include <linux/slab.h>
+ #include <linux/vmalloc.h>
+ #include <linux/mm.h>
+@@ -287,8 +288,8 @@ static void evdev_pass_values(struct evdev_client *client,
+ 	spin_unlock(&client->buffer_lock);
+ 
+ 	if (wakeup)
+-		wake_up_interruptible_poll(&client->wait,
+-			EPOLLIN | EPOLLOUT | EPOLLRDNORM | EPOLLWRNORM);
++		__wake_up_flags(&client->wait, TASK_INTERRUPTIBLE, 1, WF_SCX_INPUT,
++				poll_to_key(EPOLLIN | EPOLLOUT | EPOLLRDNORM | EPOLLWRNORM));
+ }
+ 
+ /*
+diff --git a/fs/eventfd.c b/fs/eventfd.c
+index 9d33a02..010dd74 100644
+--- a/fs/eventfd.c
++++ b/fs/eventfd.c
+@@ -11,6 +11,7 @@
+ #include <linux/init.h>
+ #include <linux/fs.h>
+ #include <linux/sched/signal.h>
++#include <linux/sched/wake_signal.h>
+ #include <linux/kernel.h>
+ #include <linux/slab.h>
+ #include <linux/list.h>
+@@ -44,16 +45,18 @@ struct eventfd_ctx {
+ };
+ 
+ /**
+- * eventfd_signal_mask - Increment the event counter
++ * eventfd_signal_mask_flags - Increment the event counter with a wake cause
+  * @ctx: [in] Pointer to the eventfd context.
+  * @mask: [in] poll mask
++ * @wake_flags: [in] internal typed readiness flags
+  *
+  * This function is supposed to be called by the kernel in paths that do not
+  * allow sleeping. In this function we allow the counter to reach the ULLONG_MAX
+  * value, and we signal this as overflow condition by returning a EPOLLERR
+  * to poll(2).
+  */
+-void eventfd_signal_mask(struct eventfd_ctx *ctx, __poll_t mask)
++void eventfd_signal_mask_flags(struct eventfd_ctx *ctx, __poll_t mask,
++			       int wake_flags)
+ {
+ 	unsigned long flags;
+ 
+@@ -73,10 +76,18 @@ void eventfd_signal_mask(struct eventfd_ctx *ctx, __poll_t mask)
+ 	if (ctx->count < ULLONG_MAX)
+ 		ctx->count++;
+ 	if (waitqueue_active(&ctx->wqh))
+-		wake_up_locked_poll(&ctx->wqh, EPOLLIN | mask);
++		__wake_up_locked_key_flags(&ctx->wqh, TASK_NORMAL,
++					   wake_flags & WF_SCX_SIGNAL_MASK,
++					   poll_to_key(EPOLLIN | mask));
+ 	current->in_eventfd = 0;
+ 	spin_unlock_irqrestore(&ctx->wqh.lock, flags);
+ }
++EXPORT_SYMBOL_GPL(eventfd_signal_mask_flags);
++
++void eventfd_signal_mask(struct eventfd_ctx *ctx, __poll_t mask)
++{
++	eventfd_signal_mask_flags(ctx, mask, 0);
++}
+ EXPORT_SYMBOL_GPL(eventfd_signal_mask);
+ 
+ static void eventfd_free_ctx(struct eventfd_ctx *ctx)
+@@ -420,4 +431,3 @@ SYSCALL_DEFINE1(eventfd, unsigned int, count)
+ {
+ 	return do_eventfd(count, 0);
+ }
+-
+diff --git a/fs/eventpoll.c b/fs/eventpoll.c
+index eed8cec..1cb084b 100644
+--- a/fs/eventpoll.c
++++ b/fs/eventpoll.c
+@@ -9,6 +9,7 @@
+ #include <linux/init.h>
+ #include <linux/kernel.h>
+ #include <linux/sched/signal.h>
++#include <linux/sched/wake_signal.h>
+ #include <linux/fs.h>
+ #include <linux/file.h>
+ #include <linux/signal.h>
+@@ -841,7 +842,7 @@ static void ep_resume_napi_irqs(struct eventpoll *ep)
+ #ifdef CONFIG_DEBUG_LOCK_ALLOC
+ 
+ static void ep_poll_safewake(struct eventpoll *ep, struct epitem *epi,
+-			     unsigned pollflags)
++			     unsigned int pollflags, int wake_flags)
+ {
+ 	struct eventpoll *ep_src;
+ 	unsigned long flags;
+@@ -872,7 +873,8 @@ static void ep_poll_safewake(struct eventpoll *ep, struct epitem *epi,
+ 	}
+ 	spin_lock_irqsave_nested(&ep->poll_wait.lock, flags, nests);
+ 	ep->nests = nests + 1;
+-	wake_up_locked_poll(&ep->poll_wait, EPOLLIN | pollflags);
++	__wake_up_locked_key_flags(&ep->poll_wait, TASK_NORMAL, wake_flags,
++				   poll_to_key(EPOLLIN | pollflags));
+ 	ep->nests = 0;
+ 	spin_unlock_irqrestore(&ep->poll_wait.lock, flags);
+ }
+@@ -880,9 +882,10 @@ static void ep_poll_safewake(struct eventpoll *ep, struct epitem *epi,
+ #else
+ 
+ static void ep_poll_safewake(struct eventpoll *ep, struct epitem *epi,
+-			     __poll_t pollflags)
++			     __poll_t pollflags, int wake_flags)
+ {
+-	wake_up_poll(&ep->poll_wait, EPOLLIN | pollflags);
++	__wake_up_flags(&ep->poll_wait, TASK_NORMAL, 1, wake_flags,
++			poll_to_key(EPOLLIN | pollflags));
+ }
+ 
+ #endif
+@@ -1239,7 +1242,7 @@ static void ep_clear_and_put(struct eventpoll *ep)
+ {
+ 	/* Release any threads blocked in poll-on-ep. */
+ 	if (waitqueue_active(&ep->poll_wait))
+-		ep_poll_safewake(ep, NULL, 0);
++		ep_poll_safewake(ep, NULL, 0, 0);
+ 
+ 	mutex_lock(&ep->mtx);
+ 	ep_drain_pollwaits(ep);
+@@ -1558,10 +1561,9 @@ static int ep_poll_callback(wait_queue_entry_t *wait, unsigned mode, int sync, v
+ 				break;
+ 			}
+ 		}
+-		if (sync)
+-			wake_up_sync(&ep->wq);
+-		else
+-			wake_up(&ep->wq);
++		__wake_up_flags(&ep->wq, TASK_NORMAL, 1,
++				(sync & WF_SCX_SIGNAL_MASK) |
++				((sync & ~WF_SCX_SIGNAL_MASK) ? WF_SYNC : 0), NULL);
+ 	}
+ 	if (waitqueue_active(&ep->poll_wait))
+ 		pwake++;
+@@ -1571,7 +1573,8 @@ out_unlock:
+ 
+ 	/* We have to call this outside the lock */
+ 	if (pwake)
+-		ep_poll_safewake(ep, epi, pollflags & EPOLL_URING_WAKE);
++		ep_poll_safewake(ep, epi, pollflags & EPOLL_URING_WAKE,
++				 sync & WF_SCX_SIGNAL_MASK);
+ 
+ 	if (!(epi->event.events & EPOLLEXCLUSIVE))
+ 		ewake = 1;
+@@ -1968,7 +1971,7 @@ static int ep_insert(struct ep_ctl_ctx *ctx, struct eventpoll *ep,
+ 
+ 	/* We have to call this outside the lock */
+ 	if (pwake)
+-		ep_poll_safewake(ep, NULL, 0);
++		ep_poll_safewake(ep, NULL, 0, 0);
+ 
+ 	return 0;
+ }
+@@ -2044,7 +2047,7 @@ static int ep_modify(struct eventpoll *ep, struct epitem *epi,
+ 
+ 	/* We have to call this outside the lock */
+ 	if (pwake)
+-		ep_poll_safewake(ep, NULL, 0);
++		ep_poll_safewake(ep, NULL, 0, 0);
+ 
+ 	return 0;
+ }
+diff --git a/include/linux/eventfd.h b/include/linux/eventfd.h
+index e32bee4..1004658 100644
+--- a/include/linux/eventfd.h
++++ b/include/linux/eventfd.h
+@@ -36,6 +36,8 @@ struct file *eventfd_fget(int fd);
+ struct eventfd_ctx *eventfd_ctx_fdget(int fd);
+ struct eventfd_ctx *eventfd_ctx_fileget(struct file *file);
+ void eventfd_signal_mask(struct eventfd_ctx *ctx, __poll_t mask);
++void eventfd_signal_mask_flags(struct eventfd_ctx *ctx, __poll_t mask,
++			       int wake_flags);
+ int eventfd_ctx_remove_wait_queue(struct eventfd_ctx *ctx, wait_queue_entry_t *wait,
+ 				  __u64 *cnt);
+ void eventfd_ctx_do_read(struct eventfd_ctx *ctx, __u64 *cnt);
+@@ -61,6 +63,11 @@ static inline void eventfd_signal_mask(struct eventfd_ctx *ctx, __poll_t mask)
+ {
+ }
+ 
++static inline void eventfd_signal_mask_flags(struct eventfd_ctx *ctx,
++					    __poll_t mask, int wake_flags)
++{
++}
++
+ static inline void eventfd_ctx_put(struct eventfd_ctx *ctx)
+ {
+ 
+@@ -90,4 +97,3 @@ static inline void eventfd_signal(struct eventfd_ctx *ctx)
+ }
+ 
+ #endif /* _LINUX_EVENTFD_H */
+-
+diff --git a/include/linux/sched/ext.h b/include/linux/sched/ext.h
+index 87e353f..513fe15 100644
+--- a/include/linux/sched/ext.h
++++ b/include/linux/sched/ext.h
+@@ -11,6 +11,7 @@
+ 
+ #ifdef CONFIG_SCHED_CLASS_EXT
+ 
++#include <linux/atomic.h>
+ #include <linux/llist.h>
+ #include <linux/rhashtable-types.h>
+ 
+@@ -187,6 +188,7 @@ struct sched_ext_entity {
+ #endif
+ 	struct scx_dispatch_q	*dsq;
+ 	atomic_long_t		ops_state;
++	atomic64_t		wake_signal;
+ 	u64			ddsp_dsq_id;
+ 	u64			ddsp_enq_flags;
+ 	struct scx_dsq_list_node dsq_list;	/* dispatch order */
+diff --git a/include/linux/sched/wake_signal.h b/include/linux/sched/wake_signal.h
+new file mode 100644
+index 0000000..0ddcd65
+--- /dev/null
++++ b/include/linux/sched/wake_signal.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _LINUX_SCHED_WAKE_SIGNAL_H
++#define _LINUX_SCHED_WAKE_SIGNAL_H
++
++#include <linux/wait.h>
++
++/* Internal wake flags, never poll bits or userspace supplied priority. */
++#define WF_SYNC			0x10
++#define WF_SCX_INPUT		0x100
++#define WF_SCX_FENCE		0x200
++#define WF_SCX_SIGNAL_MASK	(WF_SCX_INPUT | WF_SCX_FENCE)
++#define WF_SCX_SIGNAL_SHIFT	8
++
++int wake_up_state_signal(struct task_struct *p, unsigned int state,
++			 unsigned int signal);
++int __wake_up_flags(struct wait_queue_head *head, unsigned int mode,
++		    int nr_exclusive, int wake_flags, void *key);
++void __wake_up_locked_key_flags(struct wait_queue_head *head, unsigned int mode,
++				int wake_flags, void *key);
++
++#endif
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index 93071cf..f188269 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -39,6 +39,7 @@
+ #include <linux/sched/nohz.h>
+ #include <linux/sched/rseq_api.h>
+ #include <linux/sched/rt.h>
++#include <linux/sched/wake_signal.h>
+ 
+ #include <linux/blkdev.h>
+ #include <linux/context_tracking.h>
+@@ -4379,6 +4380,7 @@ int try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
+ 		 * enqueue, such as ttwu_queue_wakelist().
+ 		 */
+ 		WRITE_ONCE(p->__state, TASK_WAKING);
++		scx_record_wake_signal(p, wake_flags);
+ 
+ 		/*
+ 		 * If the owning (remote) CPU is still in the middle of schedule() with
+@@ -4572,6 +4574,14 @@ int wake_up_process(struct task_struct *p)
+ }
+ EXPORT_SYMBOL(wake_up_process);
+ 
++/* Tag only accepted wakeups of a blocked task; preserve normal wake semantics. */
++int wake_up_state_signal(struct task_struct *p, unsigned int state,
++			 unsigned int signal)
++{
++	return try_to_wake_up(p, state, signal & WF_SCX_SIGNAL_MASK);
++}
++EXPORT_SYMBOL_GPL(wake_up_state_signal);
++
+ int wake_up_state(struct task_struct *p, unsigned int state)
+ {
+ 	return try_to_wake_up(p, state, 0);
+diff --git a/kernel/sched/ext/ext.c b/kernel/sched/ext/ext.c
+index 56fa09d..09ed4dd 100644
+--- a/kernel/sched/ext/ext.c
++++ b/kernel/sched/ext/ext.c
+@@ -12,6 +12,7 @@
+ #include <linux/rhashtable.h>
+ #include <linux/sched/clock.h>
+ #include <linux/sched/isolation.h>
++#include <linux/sched/wake_signal.h>
+ #include <linux/suspend.h>
+ #include <linux/sysrq.h>
+ 
+@@ -71,6 +72,16 @@ static LIST_HEAD(scx_tasks);
+ /* ops enable/disable */
+ static DEFINE_MUTEX(scx_enable_mutex);
+ DEFINE_STATIC_KEY_FALSE(__scx_enabled);
++DEFINE_STATIC_KEY_FALSE(scx_wake_signal_enabled);
++
++void __scx_record_wake_signal(struct task_struct *p, int wake_flags)
++{
++	u64 cause = (wake_flags & WF_SCX_SIGNAL_MASK) >> WF_SCX_SIGNAL_SHIFT;
++
++	if (p->sched_class != &ext_sched_class)
++		return;
++	atomic64_set(&p->scx.wake_signal, cause ? (ktime_get_ns() & ~3ULL) | cause : 0);
++}
+ DEFINE_STATIC_PERCPU_RWSEM(scx_fork_rwsem);
+ static atomic_t scx_enable_state_var = ATOMIC_INIT(SCX_DISABLED);
+ static DEFINE_RAW_SPINLOCK(scx_bypass_lock);
+@@ -3046,6 +3057,8 @@ static void set_next_task_scx(struct rq *rq, struct task_struct *p, bool first)
+ 	/* see dequeue_task_scx() on why we skip when !QUEUED */
+ 	if (SCX_HAS_OP(sch, running) && (p->scx.flags & SCX_TASK_QUEUED))
+ 		SCX_CALL_OP_TASK(sch, running, rq, p);
++	if (static_branch_unlikely(&scx_wake_signal_enabled))
++		atomic64_set(&p->scx.wake_signal, 0);
+ 
+ 	clr_task_runnable(p, true);
+ 
+@@ -3752,6 +3765,7 @@ static int __scx_init_task(struct scx_sched *sch, struct task_struct *p, bool fo
+ 	int ret;
+ 
+ 	p->scx.disallow = false;
++	atomic64_set(&p->scx.wake_signal, 0);
+ 
+ 	if (SCX_HAS_OP(sch, init_task)) {
+ 		struct scx_init_task_args args = {
+@@ -6374,6 +6388,7 @@ static void scx_root_disable(struct scx_sched *sch)
+ 
+ 	/* no task is on scx, turn off all the switches and flush in-progress calls */
+ 	static_branch_disable(&__scx_enabled);
++	static_branch_disable(&scx_wake_signal_enabled);
+ 	static_branch_disable(&__scx_is_cid_type);
+ 	if (sch->ops.flags & SCX_OPS_TID_TO_TASK)
+ 		static_branch_disable(&__scx_tid_to_task_enabled);
+@@ -7255,6 +7270,12 @@ static int validate_ops(struct scx_sched *sch, const struct sched_ext_ops *ops)
+ 	 * may set it to declare a dependency; reject if the root hasn't
+ 	 * enabled it.
+ 	 */
++	if ((ops->flags & SCX_OPS_WAKE_SIGNAL) && scx_parent(sch) &&
++	    !(scx_root->ops.flags & SCX_OPS_WAKE_SIGNAL)) {
++		scx_error(sch, "SCX_OPS_WAKE_SIGNAL requires root scheduler opt-in");
++		return -EINVAL;
++	}
++
+ 	if ((ops->flags & SCX_OPS_TID_TO_TASK) && scx_parent(sch) &&
+ 	    !(scx_root->ops.flags & SCX_OPS_TID_TO_TASK)) {
+ 		scx_error(sch, "SCX_OPS_TID_TO_TASK requires root scheduler to enable it");
+@@ -7583,6 +7604,8 @@ static void scx_root_enable_workfn(struct kthread_work *work)
+ 	 */
+ 	WRITE_ONCE(scx_switching_all, !(ops->flags & SCX_OPS_SWITCH_PARTIAL));
+ 	static_branch_enable(&__scx_enabled);
++	if (ops->flags & SCX_OPS_WAKE_SIGNAL)
++		static_branch_enable(&scx_wake_signal_enabled);
+ 
+ 	/*
+ 	 * We're fully committed and can't fail. The task READY -> ENABLED
+@@ -10429,6 +10452,49 @@ __bpf_kfunc s32 scx_bpf_task_cid(const struct task_struct *p)
+ 	return tbl[task_cpu(p)];
+ }
+ 
++/**
++ * scx_bpf_task_wake_signal_v1 - Read the current blocked-task wake token
++ * @p: trusted task pointer
++ *
++ * Bits 0/1 mean input packet/fence completion. Other bits are the accepted
++ * wake's CLOCK_MONOTONIC timestamp rounded down to four nanoseconds. Zero is
++ * unknown. The token is cleared after ops.running(), not on a failed wake.
++ */
++__bpf_kfunc u64 scx_bpf_task_wake_signal_v1(struct task_struct *p)
++{
++	if (!static_branch_unlikely(&scx_wake_signal_enabled))
++		return 0;
++	return atomic64_read(&p->scx.wake_signal);
++}
++
++/**
++ * scx_bpf_cpu_irq_ns_v1 - Read completed IRQ accounting without rq locking
++ * @cpu: CPU to query
++ * @aux: implicit BPF program context
++ *
++ * Returns U64_MAX for unknown/offline/unsupported data. This is a cumulative
++ * duration, not an active-handler indication; ksoftirqd task time is excluded.
++ * The 32-bit case is unsupported to avoid unbounded remote seqcount retries.
++ */
++__bpf_kfunc u64 scx_bpf_cpu_irq_ns_v1(s32 cpu, const struct bpf_prog_aux *aux)
++{
++#if defined(CONFIG_IRQ_TIME_ACCOUNTING) && defined(CONFIG_64BIT)
++	struct scx_sched *sch;
++	u64 total;
++
++	guard(rcu)();
++	if (cpu < 0 || cpu >= nr_cpu_ids || !cpu_online(cpu) || !irqtime_enabled())
++		return U64_MAX;
++	sch = scx_prog_sched(aux);
++	if (!sch || !scx_cpu_valid(sch, cpu, NULL))
++		return U64_MAX;
++	total = READ_ONCE(per_cpu(cpu_irqtime, cpu).total);
++	return cpu_online(cpu) && irqtime_enabled() ? total : U64_MAX;
++#else
++	return U64_MAX;
++#endif
++}
++
+ /**
+  * scx_bpf_cpu_rq - Fetch the rq of a CPU
+  * @cpu: CPU of the rq
+@@ -10715,6 +10781,8 @@ out:
+ __bpf_kfunc_end_defs();
+ 
+ BTF_KFUNCS_START(scx_kfunc_ids_any)
++BTF_ID_FLAGS(func, scx_bpf_task_wake_signal_v1, KF_RCU)
++BTF_ID_FLAGS(func, scx_bpf_cpu_irq_ns_v1, KF_IMPLICIT_ARGS)
+ BTF_ID_FLAGS(func, scx_bpf_task_set_slice, KF_IMPLICIT_ARGS | KF_RCU);
+ BTF_ID_FLAGS(func, scx_bpf_task_set_dsq_vtime, KF_IMPLICIT_ARGS | KF_RCU);
+ BTF_ID_FLAGS(func, scx_bpf_kick_cpu, KF_IMPLICIT_ARGS)
+diff --git a/kernel/sched/ext/ext.h b/kernel/sched/ext/ext.h
+index 0b7fc46..727c207 100644
+--- a/kernel/sched/ext/ext.h
++++ b/kernel/sched/ext/ext.h
+@@ -8,6 +8,15 @@
+  */
+ #ifdef CONFIG_SCHED_CLASS_EXT
+ 
++DECLARE_STATIC_KEY_FALSE(scx_wake_signal_enabled);
++void __scx_record_wake_signal(struct task_struct *p, int wake_flags);
++
++static inline void scx_record_wake_signal(struct task_struct *p, int wake_flags)
++{
++	if (static_branch_unlikely(&scx_wake_signal_enabled))
++		__scx_record_wake_signal(p, wake_flags);
++}
++
+ void scx_tick(struct rq *rq);
+ void init_scx_entity(struct sched_ext_entity *scx);
+ void scx_pre_fork(struct task_struct *p);
+@@ -42,6 +51,8 @@ bool scx_prio_less(const struct task_struct *a, const struct task_struct *b,
+ 
+ #else	/* CONFIG_SCHED_CLASS_EXT */
+ 
++static inline void scx_record_wake_signal(struct task_struct *p, int wake_flags) {}
++
+ static inline void scx_tick(struct rq *rq) {}
+ static inline void scx_pre_fork(struct task_struct *p) {}
+ static inline int scx_fork(struct task_struct *p, struct kernel_clone_args *kargs) { return 0; }
+diff --git a/kernel/sched/ext/internal.h b/kernel/sched/ext/internal.h
+index 8e2e5c1..b40e30c 100644
+--- a/kernel/sched/ext/internal.h
++++ b/kernel/sched/ext/internal.h
+@@ -184,6 +184,9 @@ enum scx_ops_flags {
+ 	 */
+ 	SCX_OPS_TID_TO_TASK		= 1LLU << 8,
+ 
++	/* Root opts in to typed blocked-task wake metadata. */
++	SCX_OPS_WAKE_SIGNAL		= 1LLU << 9,
++
+ 	SCX_OPS_ALL_FLAGS		= SCX_OPS_KEEP_BUILTIN_IDLE |
+ 					  SCX_OPS_ENQ_LAST |
+ 					  SCX_OPS_ENQ_EXITING |
+@@ -192,7 +195,8 @@ enum scx_ops_flags {
+ 					  SCX_OPS_SWITCH_PARTIAL |
+ 					  SCX_OPS_BUILTIN_IDLE_PER_NODE |
+ 					  SCX_OPS_ALWAYS_ENQ_IMMED |
+-					  SCX_OPS_TID_TO_TASK,
++					  SCX_OPS_TID_TO_TASK |
++					  SCX_OPS_WAKE_SIGNAL,
+ 
+ 	/* high 8 bits are internal, don't include in SCX_OPS_ALL_FLAGS */
+ 	__SCX_OPS_INTERNAL_MASK		= 0xffLLU << 56,
+diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
+index 94d1cb9..4ac9d2d 100644
+--- a/kernel/sched/sched.h
++++ b/kernel/sched/sched.h
+@@ -21,6 +21,7 @@
+ #include <linux/sched/task_flags.h>
+ #include <linux/sched/task.h>
+ #include <linux/sched/topology.h>
++#include <linux/sched/wake_signal.h>
+ #include <linux/atomic.h>
+ #include <linux/bitmap.h>
+ #include <linux/bug.h>
+@@ -2613,7 +2614,6 @@ static inline int task_on_rq_migrating(struct task_struct *p)
+ #define WF_FORK			0x04 /* Wakeup after fork; maps to SD_BALANCE_FORK */
+ #define WF_TTWU			0x08 /* Wakeup;            maps to SD_BALANCE_WAKE */
+ 
+-#define WF_SYNC			0x10 /* Waker goes to sleep after wakeup */
+ #define WF_MIGRATED		0x20 /* Internal use, task got migrated */
+ #define WF_CURRENT_CPU		0x40 /* Prefer to move the wakee to the current CPU. */
+ #define WF_RQ_SELECTED		0x80 /* ->select_task_rq() was called */
+diff --git a/kernel/sched/wait.c b/kernel/sched/wait.c
+index d033f60..9f76ee0 100644
+--- a/kernel/sched/wait.c
++++ b/kernel/sched/wait.c
+@@ -6,6 +6,7 @@
+  */
+ #include "sched.h"
+ #include <linux/wait_bit.h>
++#include <linux/sched/wake_signal.h>
+ 
+ void __init_waitqueue_head(struct wait_queue_head *wq_head, const char *name, struct lock_class_key *key)
+ {
+@@ -148,6 +149,13 @@ int __wake_up(struct wait_queue_head *wq_head, unsigned int mode,
+ }
+ EXPORT_SYMBOL(__wake_up);
+ 
++int __wake_up_flags(struct wait_queue_head *head, unsigned int mode,
++		    int nr_exclusive, int wake_flags, void *key)
++{
++	return __wake_up_common_lock(head, mode, nr_exclusive, wake_flags, key);
++}
++EXPORT_SYMBOL_GPL(__wake_up_flags);
++
+ void __wake_up_on_current_cpu(struct wait_queue_head *wq_head, unsigned int mode, void *key)
+ {
+ 	__wake_up_common_lock(wq_head, mode, 1, WF_CURRENT_CPU, key);
+@@ -168,6 +176,13 @@ void __wake_up_locked_key(struct wait_queue_head *wq_head, unsigned int mode, vo
+ }
+ EXPORT_SYMBOL_GPL(__wake_up_locked_key);
+ 
++void __wake_up_locked_key_flags(struct wait_queue_head *head, unsigned int mode,
++				int wake_flags, void *key)
++{
++	__wake_up_common(head, mode, 1, wake_flags, key);
++}
++EXPORT_SYMBOL_GPL(__wake_up_locked_key_flags);
++
+ /**
+  * __wake_up_sync_key - wake up threads blocked on a waitqueue.
+  * @wq_head: the waitqueue

@@ -1,0 +1,3 @@
+c15e5634287d9f9cc440fa180c4b9fe966417ef3a677a5e0e96b670340c83018  audio/src/audio.rs
+b62c52451bb5ef6bcd3443b1b3a56b9136375ad7f043f1628ffd0fe0f81991ab  audio/src/cpal/cpal_record.rs
+299df6c59d512279fa58cbf9c263f3bd98d8617866ce8f52858cbfe72ccdc451  audio/src/pulse/pulse_record.rs

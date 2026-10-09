@@ -1,0 +1,55 @@
+# Arch/makepkg products
+*.pkg.tar.*
+*.src.tar.*
+/pkg/
+/src/
+/artifacts/packages/*
+/artifacts/sources/*
+/artifacts/results/*
+/artifacts/build/*
+/artifacts/observer-bench/
+# Stock-package stash for offline recovery; machine-local by nature.
+/artifacts/rollback/
+!/artifacts/packages/.gitkeep
+!/artifacts/sources/.gitkeep
+!/artifacts/results/.gitkeep
+!/artifacts/build/.gitkeep
+
+# Downloaded upstream source archives
+/kwin-*.tar.*
+
+# The patch series lives in patches/ and nowhere else. makepkg and
+# verify_reference_sources.sh both read only that copy, so a stray root-level
+# copy is invisible to every hash check while polluting git status.
+/*.patch
+# patch(1) writes these when a hunk applies with fuzz; they are never sources.
+*.orig
+*.rej
+
+# CMake and local build products
+/build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Python caches and test products
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# Local captures and logs
+kwin perf statistics *.csv
+*.log
+
+# Tooling scratch directories
+/.playwright-mcp/
+
+# Vendored upstream source trees. scripts/verify_reference_sources.sh proves the
+# patch series against a tree extracted from the archive whose SHA-256 already
+# matched PKGBUILD, so a committed copy would only re-prove that the copy equals
+# that archive. Re-vendor locally with:
+#   bsdtar -xf artifacts/sources/kwin-$pkgver.tar.xz -C reference/upstream/
+# The patched overlay in reference/patched-overlay/ is the reviewed artifact and
+# stays tracked.
+/reference/upstream/

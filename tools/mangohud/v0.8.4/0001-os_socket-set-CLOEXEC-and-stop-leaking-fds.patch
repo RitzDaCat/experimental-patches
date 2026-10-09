@@ -1,0 +1,66 @@
+From 51e874ac428002704738ec325308debda07a85d7 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Sun, 26 Jul 2026 16:20:48 -0500
+Subject: [PATCH 1/2] os_socket: set CLOEXEC and stop leaking fds
+
+Three fd problems on the control-socket path:
+
+- The listening socket was inherited by every child the game spawns
+  (observed: WoW.exe's WowVoiceProxy.exe holding the listener), keeping
+  it alive in processes that can never service it. Create it with
+  SOCK_CLOEXEC, which is race-free against a concurrent fork unlike a
+  follow-up fcntl(FD_CLOEXEC).
+
+- os_socket_listen_abstract() returned without close(s) when bind()
+  failed, leaking a socket fd for the lifetime of the process. This is
+  the common path when a second Vulkan instance hits EADDRINUSE.
+
+- Accepted client fds had the same inheritance problem as the listener;
+  use accept4(SOCK_CLOEXEC). _GNU_SOURCE is already defined globally
+  for linux in meson.build, so accept4 is declared.
+---
+ src/mesa/util/os_socket.c | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/src/mesa/util/os_socket.c b/src/mesa/util/os_socket.c
+index 98ef013..c6789a0 100644
+--- a/src/mesa/util/os_socket.c
++++ b/src/mesa/util/os_socket.c
+@@ -20,7 +20,11 @@
+ int
+ os_socket_listen_abstract(const char *path, int count)
+ {
+-   int s = socket(AF_UNIX, SOCK_STREAM, 0);
++   /* SOCK_CLOEXEC: without it the listening control socket leaks into every
++    * child the game spawns (observed: WoW.exe's WowVoiceProxy.exe inheriting
++    * the listener fd), keeping the socket alive in processes that can never
++    * service it. */
++   int s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (s < 0)
+       return -1;
+ 
+@@ -33,8 +37,10 @@ os_socket_listen_abstract(const char *path, int count)
+    int ret = bind(s, (struct sockaddr*)&addr,
+                   offsetof(struct sockaddr_un, sun_path) +
+                   strlen(path) + 1);
+-   if (ret < 0)
++   if (ret < 0) {
++      close(s);
+       return -1;
++   }
+ 
+    listen(s, count);
+ 
+@@ -44,7 +50,9 @@ os_socket_listen_abstract(const char *path, int count)
+ int
+ os_socket_accept(int s)
+ {
+-   return accept(s, NULL, NULL);
++   /* SOCK_CLOEXEC for the same reason as the listener below: the accepted
++    * client fd must not be inherited by children the game spawns. */
++   return accept4(s, NULL, NULL, SOCK_CLOEXEC);
+ }
+ 
+ ssize_t
+-- 
+2.56.0

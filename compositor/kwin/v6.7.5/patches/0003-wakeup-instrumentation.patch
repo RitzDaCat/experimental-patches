@@ -1,0 +1,86 @@
+
+Context re-exported for the exact KWin 6.7.5 base, 2026-10-08.
+Source changes match the retained revision-24 overlay.
+
+diff --git a/src/core/renderloop.cpp b/src/core/renderloop.cpp
+index 3257f2b931c9ad11b0c70e09ab43768f0a32970b..102634e6c5f161c3a647d9c1f83043fbffb36038 100644
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -9,6 +9,7 @@
+ #include "options.h"
+ #include "renderloop_p.h"
+ #include "scene/surfaceitem.h"
++#include "utils/envvar.h"
+ #include "window.h"
+ #include "workspace.h"
+ 
+@@ -23,6 +24,8 @@ RenderLoopPrivate *RenderLoopPrivate::get(RenderLoop *loop)
+ }
+ 
+ static const bool s_printDebugInfo = qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0;
++static const std::chrono::microseconds s_schedulerMargin{
++    std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000)};
+ 
+ RenderLoopPrivate::RenderLoopPrivate(RenderLoop *q, BackendOutput *output)
+     : q(q)
+@@ -48,8 +51,7 @@ void RenderLoopPrivate::scheduleRepaint(std::chrono::nanoseconds lastTargetTimes
+     const std::chrono::nanoseconds currentTime(std::chrono::steady_clock::now().time_since_epoch());
+ 
+     // Estimate when it's a good time to perform the next compositing cycle.
+-    // the 1ms on top of the safety margin is required for timer and scheduler inaccuracies
+-    std::chrono::nanoseconds expectedCompositingTime = std::min(renderJournal.result() + safetyMargin + 1ms, 2 * vblankInterval);
++    std::chrono::nanoseconds expectedCompositingTime = std::min(renderJournal.result() + safetyMargin + s_schedulerMargin, 2 * vblankInterval);
+ 
+     if (presentationMode == PresentationMode::VSync) {
+         // normal presentation: pageflips only happen at vblank
+@@ -109,6 +111,8 @@ void RenderLoopPrivate::scheduleRepaint(std::chrono::nanoseconds lastTargetTimes
+     }
+ 
+     const std::chrono::nanoseconds nextRenderTimestamp = nextPresentationTimestamp - expectedCompositingTime;
++    desiredWakeTimestamp = nextRenderTimestamp;
++    armedWakeTimestamp = std::max(nextRenderTimestamp, currentTime);
+     compositeTimer.start(nextRenderTimestamp);
+ }
+ 
+@@ -131,14 +135,17 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
+ {
+     if (output && s_printDebugInfo && !m_debugOutput) {
+         m_debugOutput = std::fstream(qPrintable("kwin perf statistics " + output->name() + ".csv"), std::ios::out);
+-        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time\n";
++        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin\n";
+     }
+     if (m_debugOutput) {
+         auto times = renderTime.value_or(RenderTimeSpan{});
+         const bool vrr = mode == PresentationMode::AdaptiveSync || mode == PresentationMode::AdaptiveAsync;
+         const bool tearing = mode == PresentationMode::Async || mode == PresentationMode::AdaptiveAsync;
++        const auto wakeLateness = std::max(actualWakeTimestamp - armedWakeTimestamp, 0ns);
++        const auto scheduleDeficit = std::max(armedWakeTimestamp - desiredWakeTimestamp, 0ns);
+         *m_debugOutput << frame->targetPageflipTime().time_since_epoch().count() << "," << timestamp.count() << "," << times.start.time_since_epoch().count() << "," << times.end.time_since_epoch().count()
+-                       << "," << safetyMargin.count() << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0) << "," << frame->predictedRenderTime().count() << "\n";
++                       << "," << safetyMargin.count() << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0) << "," << frame->predictedRenderTime().count()
++                       << "," << desiredWakeTimestamp.count() << "," << armedWakeTimestamp.count() << "," << actualWakeTimestamp.count() << "," << wakeLateness.count() << "," << scheduleDeficit.count() << "," << s_schedulerMargin.count() * 1000 << "\n";
+     }
+ 
+     Q_ASSERT(pendingFrameCount > 0);
+@@ -185,6 +192,7 @@ void RenderLoop::timerEvent(QTimerEvent *event)
+ 
+ void RenderLoopPrivate::dispatch()
+ {
++    actualWakeTimestamp = std::chrono::steady_clock::now().time_since_epoch();
+     Q_EMIT q->frameRequested(q);
+ }
+ 
+diff --git a/src/core/renderloop_p.h b/src/core/renderloop_p.h
+index f5dbf3fee1f7f0edb3e03ce40d0cf58de29ebac4..994d8a774858765549062405e3abcf5b7f6cba8f 100644
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -43,6 +43,9 @@ public:
+     std::optional<std::fstream> m_debugOutput;
+     std::chrono::nanoseconds lastPresentationTimestamp = std::chrono::nanoseconds::zero();
+     std::chrono::nanoseconds nextPresentationTimestamp = std::chrono::nanoseconds::zero();
++    std::chrono::nanoseconds desiredWakeTimestamp = std::chrono::nanoseconds::zero();
++    std::chrono::nanoseconds armedWakeTimestamp = std::chrono::nanoseconds::zero();
++    std::chrono::nanoseconds actualWakeTimestamp = std::chrono::nanoseconds::zero();
+     bool wasTripleBuffering = false;
+     int doubleBufferingCounter = 0;
+     PreciseTimer compositeTimer;

@@ -1,0 +1,77 @@
+From 5f9aca8d8b5cf52a8cc027ba6e4819225a850e2b Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Tue, 21 Jul 2026 22:20:00 -0500
+Subject: [PATCH] backends/drm: gate NVIDIA color pipelines to experiment kernel
+
+KWin 6.7.3 disables DRM plane color pipelines by default on NVIDIA even when
+the driver exposes them. That forces non-identity client-to-output color
+conversions through compositor rendering and prevents direct scanout.
+
+Allow NVIDIA plane color pipelines when the existing experiment kernel release
+matches exactly and the NVIDIA DRM driver is at least 610.43.03. This keeps the
+normal KWin default on recovery kernels, requires no new user-facing setting,
+and preserves KWin's explicit KWIN_DRM_USE_COLOR_PIPELINE override.
+
+The capability request and pipeline initialization happen once at GPU startup;
+there is no added frame-path branch.
+---
+ src/backends/drm/drm_gpu.cpp | 30 +++++++++++++++++++++++++++++-
+ 1 file changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/src/backends/drm/drm_gpu.cpp b/src/backends/drm/drm_gpu.cpp
+index 55db058bc8..cf990a84fe 100644
+--- a/src/backends/drm/drm_gpu.cpp
++++ b/src/backends/drm/drm_gpu.cpp
+@@ -37,6 +37,7 @@
+ #include <poll.h>
+ #include <ranges>
+ #include <unistd.h>
++#include <sys/utsname.h>
+ #include <xf86drm.h>
+ #include <xf86drmMode.h>
+ 
+@@ -61,6 +62,19 @@ namespace KWin
+ static const std::optional<bool> s_modifiersEnv = environmentVariableBoolValue("KWIN_DRM_USE_MODIFIERS");
+ static const std::optional<bool> s_colorPipelineEnv = environmentVariableBoolValue("KWIN_DRM_USE_COLOR_PIPELINE");
+ 
++static bool experimentKernelAllowed()
++{
++    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    if (expectedRelease.isEmpty()) {
++        return false;
++    }
++
++    struct utsname systemInfo;
++    return uname(&systemInfo) == 0 && expectedRelease == systemInfo.release;
++}
++
++static const bool s_experimentKernelAllowed = experimentKernelAllowed();
++
+ DrmGpu::DrmGpu(DrmBackend *backend, int fd, std::unique_ptr<DrmDevice> &&device)
+     : m_fd(fd)
+     , m_drmDevice(std::move(device))
+@@ -113,7 +126,21 @@ DrmGpu::DrmGpu(DrmBackend *backend, int fd, std::unique_ptr<DrmDevice> &&device)
+         m_asyncPageflipSupported = drmGetCap(fd, DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP, &capability) == 0 && capability == 1;
+     }
+ 
+-    m_colorPipelineSupported = s_colorPipelineEnv.value_or(!m_drmDevice->isNvidia() && !m_drmDevice->isAmdgpu()) && drmSetClientCap(fd, DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, 1) == 0;
++    const bool allowExperimentalNvidiaColorPipeline = s_experimentKernelAllowed
++        && m_drmDevice->isNvidia()
++        && m_nvidiaDriverVersion >= Version(610, 43, 3);
++    const bool colorPipelineRequested = s_colorPipelineEnv.value_or(
++        (!m_drmDevice->isNvidia() && !m_drmDevice->isAmdgpu()) || allowExperimentalNvidiaColorPipeline);
++    m_colorPipelineSupported = colorPipelineRequested
++        && drmSetClientCap(fd, DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE, 1) == 0;
++
++    if (allowExperimentalNvidiaColorPipeline && !s_colorPipelineEnv.has_value()) {
++        qCInfo(KWIN_DRM) << "Latency experiment enabled NVIDIA DRM plane color pipelines for driver"
++                         << m_nvidiaDriverVersion->toString();
++        if (!m_colorPipelineSupported) {
++            qCWarning(KWIN_DRM) << "NVIDIA DRM plane color pipeline capability request failed";
++        }
++    }
+ 
+     m_delayedModesetTimer.setInterval(0);
+     m_delayedModesetTimer.setSingleShot(true);
+-- 
+2.50.1

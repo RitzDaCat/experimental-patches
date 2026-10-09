@@ -1,0 +1,5 @@
+{
+  "repository": "https://github.com/GoXLR-on-Linux/goxlr-utility",
+  "commit": "0c093b4c9bfb59d3426357c008760ad6620f97ae",
+  "scope": "SHA-256 of the pristine files touched by the included patches, not the entire source tree"
+}

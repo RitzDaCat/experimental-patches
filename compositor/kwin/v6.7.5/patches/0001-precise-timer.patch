@@ -1,0 +1,181 @@
+From 797d0820e692de0907cbd00872abd8b3c016ce69 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Jakub=20Oko=C5=84ski?= <jakub@okonski.org>
+Date: Thu, 11 Jun 2026 10:51:11 +0200
+Subject: [PATCH] utils: add PreciseTimer
+
+It's a timerfd-based, single-shot timer with an interface similar to
+QChronoTimer.
+---
+ src/utils/CMakeLists.txt   |  1 +
+ src/utils/precisetimer.cpp | 82 ++++++++++++++++++++++++++++++++++++++
+ src/utils/precisetimer.h   | 57 ++++++++++++++++++++++++++
+ 3 files changed, 140 insertions(+)
+ create mode 100644 src/utils/precisetimer.cpp
+ create mode 100644 src/utils/precisetimer.h
+
+diff --git a/src/utils/CMakeLists.txt b/src/utils/CMakeLists.txt
+index ddbd4c1ca78..30c0822e738 100644
+--- a/src/utils/CMakeLists.txt
++++ b/src/utils/CMakeLists.txt
+@@ -6,6 +6,7 @@ target_sources(kwin PRIVATE
+     gravity.cpp
+     lightsensor.cpp
+     orientationsensor.cpp
++    precisetimer.cpp
+     proximitysensor.cpp
+     ramfile.cpp
+     realtime.cpp
+diff --git a/src/utils/precisetimer.cpp b/src/utils/precisetimer.cpp
+new file mode 100644
+index 00000000000..7e274547a22
+--- /dev/null
++++ b/src/utils/precisetimer.cpp
+@@ -0,0 +1,82 @@
++/*
++    SPDX-FileCopyrightText: 2026 Jakub Okoński <jakub@okonski.org>
++
++    SPDX-License-Identifier: GPL-2.0-or-later
++*/
++
++#include "utils/common.h"
++#include "utils/precisetimer.h"
++
++#include <sys/timerfd.h>
++#include <unistd.h>
++
++namespace KWin
++{
++
++PreciseTimer::PreciseTimer()
++{
++    m_timerFd = FileDescriptor{timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK)};
++    if (!m_timerFd.isValid()) {
++        qFatal("Failed to create PreciseTimer timerfd: %s", strerror(errno));
++    }
++    m_notifier = std::make_unique<QSocketNotifier>(m_timerFd.get(), QSocketNotifier::Read);
++    QObject::connect(m_notifier.get(), &QSocketNotifier::activated, this, &PreciseTimer::timerFdReadable);
++}
++
++void PreciseTimer::timerFdReadable()
++{
++    uint64_t expirations;
++    const ssize_t bytesRead = read(m_timerFd.get(), &expirations, sizeof(expirations));
++    if (!m_active) {
++        return;
++    }
++    if (bytesRead == sizeof(expirations)) {
++        m_active = false;
++        Q_EMIT timeout();
++    } else if (bytesRead < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
++        qCWarning(KWIN_CORE) << "Failed to read PreciseTimer timerfd:" << strerror(errno);
++        m_active = false;
++    }
++}
++
++void PreciseTimer::start(std::chrono::nanoseconds deadline)
++{
++    drain();
++
++    const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(deadline);
++    const auto nanoseconds = deadline - seconds;
++    itimerspec spec = {};
++    spec.it_value.tv_sec = seconds.count();
++    spec.it_value.tv_nsec = nanoseconds.count();
++
++    if (timerfd_settime(m_timerFd.get(), TFD_TIMER_ABSTIME, &spec, nullptr) != 0) {
++        qFatal("Failed to arm PreciseTimer timerfd: %s", strerror(errno));
++    }
++    m_active = true;
++}
++
++void PreciseTimer::stop()
++{
++    const itimerspec spec = {};
++    if (timerfd_settime(m_timerFd.get(), 0, &spec, nullptr) != 0) {
++        qCWarning(KWIN_CORE) << "Failed to disarm PreciseTimer timerfd:" << strerror(errno);
++    }
++    m_active = false;
++    drain();
++}
++
++bool PreciseTimer::isActive() const
++{
++    return m_active;
++}
++
++void PreciseTimer::drain()
++{
++    uint64_t expirations;
++    const auto b = read(m_timerFd.get(), &expirations, sizeof(expirations));
++    Q_UNUSED(b);
++}
++
++}
++
++#include "moc_precisetimer.cpp"
+diff --git a/src/utils/precisetimer.h b/src/utils/precisetimer.h
+new file mode 100644
+index 00000000000..883da62ddd6
+--- /dev/null
++++ b/src/utils/precisetimer.h
+@@ -0,0 +1,57 @@
++/*
++    KWin - the KDE window manager
++    This file is part of the KDE project.
++
++    SPDX-FileCopyrightText: 2026 Jakub Okoński <jakub@okonski.org>
++
++    SPDX-License-Identifier: GPL-2.0-or-later
++*/
++#pragma once
++
++#include "filedescriptor.h"
++
++#include <QObject>
++#include <QSocketNotifier>
++
++namespace KWin
++{
++
++/**
++ * Like QChronoTimer, but single-shot and targeting wakeup deadlines with 1 nanosecond granularity.
++ * It doesn't provide Qt::TimerIds.
++ * Used a timerfd wrapped in a QSocketNotifier internally.
++ */
++class PreciseTimer : public QObject
++{
++    Q_OBJECT
++
++public:
++    explicit PreciseTimer();
++
++    /**
++     * Starts the timer with the deadline passed in the argument.
++     *
++     * If the timer is already running, it will be stopped and restarted.
++     */
++    void start(std::chrono::nanoseconds deadline);
++
++    /**
++     * Stops the timer if it was already running, no-op otherwise.
++     */
++    void stop();
++
++    bool isActive() const;
++
++Q_SIGNALS:
++    void timeout();
++
++private:
++    void timerFdReadable();
++    void drain();
++
++    FileDescriptor m_timerFd;
++    std::unique_ptr<QSocketNotifier> m_notifier;
++    bool m_active = false;
++};
++
++}
+-- 
+GitLab
+
