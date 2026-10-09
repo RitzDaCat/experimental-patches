@@ -44,7 +44,7 @@ Before you test:
 
 | Area | Patch set | Base | In short | Status |
 | --- | --- | --- | --- | --- |
-| Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.9/) | CachyOS 7.2.9-1 / -2 | Cheaper, better-informed sched_ext scheduling | Default: 1–2. Patch 3 has a known boot warning and requires explicit selection; 4 never booted |
+| Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.9/) | CachyOS 7.2.9-1 / -2 | Cheaper, better-informed sched_ext scheduling | Default: 1–2 plus identity patch 5. Patch 3 has a known boot warning and requires explicit selection; 4 never booted |
 | Scheduler | [scx_cake companion](scheduler/scx-cake/8fc5ec9/) | Public scx commit `8fc5ec9b` | Consumer and comparison flags for kernel patches 1 and 3 | Source snapshot included; patch 4's consumer is not included |
 | Compositor | [kwin](compositor/kwin/) | KWin 6.7.5 | Compositor wakes later and more precisely | 21 patches, installer, opt-in, capture and rollback tools included; input-to-photon gain not shown |
 | Audio | [goxlr-utility](audio/goxlr-utility/v1.2.4/) | v1.2.4 | No buffer allocation per sampler read | Builds; not live-tested |
@@ -59,7 +59,13 @@ Before you test:
     base.json    exact public source identity
     base.sha256  pristine hashes of touched files
     0001-*.patch
+    NNNN-identify-experimental-build.patch
 ```
+
+Every series ends with an identity patch, so a patched build says so in its
+version: `uname -r`, `--version` or the overlay ends in `-exp`. KWin marks its
+package description and experiment revision instead. See
+[Know what you are running](TESTING.md#know-what-you-are-running).
 
 Patch descriptions cover four questions:
 
@@ -81,7 +87,8 @@ not a speedup.
 1. Choose one patch set and read its compatibility and known issues.
 2. Follow [TESTING.md](TESTING.md), including a tested rollback path.
 3. Get the exact public source base listed in that patch set's guide.
-4. Check, apply and build; then verify which build and feature are actually active.
+4. Check, apply and build; then [verify](TESTING.md#know-what-you-are-running)
+   that the `-exp` build and the feature are actually active.
 5. Submit a **Test result** or **Bug / regression** issue using the included forms.
 
 For kernel, scheduler, audio and MangoHud sources, run from this repo's root:

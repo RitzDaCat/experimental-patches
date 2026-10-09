@@ -10,11 +10,11 @@ built to replace. For the current source boundary that is:
 
 ```text
 pkgver=6.7.5
-pkgrel=1.1
+pkgrel=3.1
 ```
 
 This intentionally compares equal to the current CachyOS package. A later
-repository release such as `6.7.5-1.2`, `6.7.5-2.1`, `6.7.6-1.1`, or
+repository release such as `6.7.5-3.2`, `6.7.5-4.1`, `6.7.6-1.1`, or
 `6.8.0-1.1` therefore supersedes it during a normal system upgrade.
 
 `tests/test_package_versioning.py` reads the boundary from `pacman -Si kwin`
@@ -25,7 +25,7 @@ rather than a literal, because CachyOS rebuilds KWin for unrelated ABI bumps.
 The experiment revision is separate:
 
 ```text
-_kwin_latency_revision=24
+_kwin_latency_revision=25
 ```
 
 It is recorded in `pkgdesc`, package extended metadata, the artifact checksum

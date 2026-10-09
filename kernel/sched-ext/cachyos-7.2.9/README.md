@@ -1,7 +1,7 @@
 # sched_ext kernel patches — CachyOS 7.2.9-1
 
 Four kernel changes that make sched_ext schedulers cheaper to run or better
-informed. They were written for
+informed, plus an identity patch that tags the build `-exp`. They were written for
 [scx_cake](https://github.com/sched-ext/scx/tree/main/scheds/rust/scx_cake),
 but nothing in them is specific to it: any sched_ext scheduler can use the new
 kfuncs and flags.
@@ -11,7 +11,7 @@ The [scheduler companion](../../../scheduler/scx-cake/8fc5ec9/) supplies the
 consumer for patches 1 and 3 from a pinned public scx base. Private development
 repositories are not needed.
 
-The default `series` contains **1–2**. Patch 3 requires explicit selection
+The default `series` contains **1–2** and the identity patch **5**. Patch 3 requires explicit selection
 because of its known boot warning. Patch 4 is available for source review and
 expert development; it has never booted and its scheduler consumer is not bundled.
 
@@ -21,6 +21,7 @@ expert development; it has never booted and its scheduler consumer is not bundle
 | 2 | [sched-ext-dsq-direct-index](0002-sched-ext-dsq-direct-index.patch) | Find a dispatch queue by array index instead of a hash lookup | In daily use on the author's machine; speedup **not shown** |
 | 3 | [sched-wake-signals](0003-sched-wake-signals.patch) | Tell the scheduler a task woke because of input or a finished GPU job | Excluded from default `series`: one boot warning ([known issue](#known-issues)); no effect observed on KWin + NVIDIA |
 | 4 | [sched-ext-lean-idle-claim](0004-sched-ext-lean-idle-claim.patch) | Cheaper way to claim an idle CPU | **Never booted.** Not in `series` |
+| 5 | [identify-experimental-build](0005-identify-experimental-build.patch) | Kernel release ends in `-exp`, e.g. `7.2.9-1-cachyos-exp` | In both series; applies |
 
 ## Compatibility
 
@@ -39,6 +40,7 @@ boots, daily use, measured. Tester results get a row here too.
 
 | Date | Kernel | Patches | How far | Machine | Result |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-09 | CachyOS 7.2.9-1 source (touched files) | 1–3, 5 | Applies | — | Both series apply with no fuzz. CachyOS's `setlocalversion` with the PKGBUILD's localversion files gives `7.2.9-1-cachyos-exp` |
 | 2026-10-07 | CachyOS 7.3-rc6 source (`cachyos-7.3-rc6-1`) | 1–4 | Applies | — | 1, 2 and 3 fail; 4 applies with offsets. Needs a port before 7.3 |
 | 2026-10-07 | CachyOS 7.2.9-2 source | 1–4 | Applies | — | Applies with no fuzz. Every file the patches touch is identical to 7.2.9-1 |
 | 2026-10-07 | Mainline reference `2709dd5ae32f` (Makefile 7.2.0) | 1–4 | Applies | — | 1 and 3 fail; 2 and 4 apply with offsets |
@@ -81,7 +83,7 @@ from [CachyOS/linux](https://github.com/CachyOS/linux), at tag
 `cachyos-7.2.9-1` (commit `65a94cb5c1587a19242fe5a219f03343671f372e`)
 or `cachyos-7.2.9-2` (commit `09bc889a111715e4509b3819b628c9b9d9d09a0b`).
 Use your distribution's matching configuration and kernel packaging workflow.
-From this collection's root, apply the default patches 1–2:
+From this collection's root, apply the default patches 1–2 and 5:
 
 ```bash
 scripts/apply.sh kernel/sched-ext/cachyos-7.2.9 /path/to/linux-7.2.9 --check
@@ -109,8 +111,8 @@ while IFS= read -r p; do
 done < series > /tmp/sched-ext-cachyos-7.2.9.patch
 ```
 
-Give the kernel its own package name and keep your stock kernel in the boot
-menu. Remove the temporary combined patch after importing it. Build the
+Patch 5 makes `uname -r` end in `-exp`; check it after booting. Give the
+kernel its own package name and keep your stock kernel in the boot menu. Remove the temporary combined patch after importing it. Build the
 [scheduler companion](../../../scheduler/scx-cake/8fc5ec9/) if testing native
 bitops or wake signals. See [TESTING.md](../../../TESTING.md).
 
@@ -228,3 +230,20 @@ author's intended comparison is scx_cake `--lean-idle off`, `on` and `lazy`
 on one boot, but that uncommitted consumer is **not included here**. The bundled
 companion cannot perform this comparison. Treat patch 4 as source review and
 build research, rather than a ready game-testing path.
+
+## 5. Experimental build identity
+
+**What it changes.** Adds a `localversion.30-exp` file containing `-exp`. The
+kernel build appends `localversion*` files in name order, after the
+`localversion.10-pkgrel` and `localversion.20-pkgname` files that the Arch and
+CachyOS PKGBUILDs write. A build from this collection reports
+`7.2.9-1-cachyos-exp` instead of `7.2.9-1-cachyos`.
+
+**Why.** A tester must be able to tell the patched kernel from the stock one at
+a glance, in `uname -r`, the boot menu's module tree and every bug report.
+
+**Expected result.** No code change. The release string and the
+`/usr/lib/modules` directory name end in `-exp`. A KWin build from this
+collection must be gated on that name: `./install.sh --kernel <release>`.
+
+**How to test.** `uname -r` after booting the patched kernel.

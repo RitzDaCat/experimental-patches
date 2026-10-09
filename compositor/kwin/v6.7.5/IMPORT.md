@@ -1,7 +1,9 @@
 # Standalone KWin bundle
 
 Imported from the author's committed KWin experiment revision 24, source
-revision `9ab1ecc9e540a559a0dee8581836ad30de88ea80`, on 2026-10-08.
+revision `9ab1ecc9e540a559a0dee8581836ad30de88ea80`, on 2026-10-08, and synced
+to revision 25 (`dea7b6d4b0d461caa635a622501beb5af32a8341`) on 2026-10-09:
+`--kernel REL` for the baked gate and a `check()` that avoids the live DRM node.
 The files required to build, verify, install, activate, compare, capture and
 recover are included in this directory. The development repository is not a
 tester dependency.

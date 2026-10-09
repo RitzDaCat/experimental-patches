@@ -7,7 +7,7 @@ so a frame carries fresher input.**
 
 ![Status: experimental](https://img.shields.io/badge/status-experimental-c98200)
 ![KWin package: 6.7.5-3.1](https://img.shields.io/badge/KWin_package-6.7.5--3.1-0969da)
-![Experiment revision: 24](https://img.shields.io/badge/experiment_revision-24-8250df)
+![Experiment revision: 25](https://img.shields.io/badge/experiment_revision-25-8250df)
 ![Tests: passing](https://img.shields.io/badge/tests-passing-1f883d)
 ![Platform: Arch Linux](https://img.shields.io/badge/platform-Arch_Linux-1793d1)
 
@@ -68,6 +68,10 @@ place, so a reboot or a full logout follows.
 ```bash
 ./install.sh
 ```
+
+The gate is baked for the running kernel. To boot a different installed kernel
+afterwards, such as one built from this collection's kernel patches, name it:
+`./install.sh --kernel 7.2.9-1-cachyos-exp`.
 
 Confirm after the restart.
 
@@ -170,9 +174,10 @@ Nineteen behaviours across twenty-one patches, in `patches/` order.
     train the margin controller twice from one physical wake.
 17. Makes the adaptive wake margin, the adaptive render budget, and VRR cadence
     coalescing compiled-in defaults instead of an `environment.d` profile. The
-    build machine's kernel release is baked in as the gate, so a kernel update
-    fails closed to stock until the package is rebuilt. Every legacy environment
-    variable still works as an opt-out override.
+    build machine's kernel release is baked in as the gate (`--kernel REL` on
+    `install.sh` or `kwin-latencyctl build` names another installed kernel),
+    so a kernel update fails closed to stock until the package is rebuilt.
+    Every legacy environment variable still works as an opt-out override.
 18. Makes the policy opt-in and runtime-switchable (revision 22). The adaptive
     margin, the render budget, VRR coalescing, and the scheduler margin read
     live from the `[LatencyExperiment]` group in `kwinrc` through
@@ -425,6 +430,7 @@ updated afterwards.
 | [END_TO_END_INTERACTIVE_PIPELINE](docs/END_TO_END_INTERACTIVE_PIPELINE.md) | Early whole-pipeline latency and efficiency policy |
 | [PATCH_REVIEW_6.7.4](docs/PATCH_REVIEW_6.7.4_2026-08-06.md) | Patches 0001–0018 checked against KWin 6.7.4 |
 | [PATCH_REVIEW_0021](docs/PATCH_REVIEW_0021_2026-08-27.md) | Review of the selectable CSC PQ scale patch |
+| [PATCH_REVIEW_6.8](docs/PATCH_REVIEW_6.8_2026-10-07.md) | Upstream status of each patch against KWin 6.8 and the rebase plan |
 | [CODE_REVIEW](docs/CODE_REVIEW_2026-08-07.md) | Findings from a full-tree review and their disposition |
 | [HARDENING_FLAG_COST](docs/HARDENING_FLAG_COST_2026-08-07.md) | Runtime cost of the Arch hardening compiler flags |
 | [REVISION_14_TEST_PROTOCOL](docs/REVISION_14_TEST_PROTOCOL.md) | HDR direct-scanout test protocol, superseded |

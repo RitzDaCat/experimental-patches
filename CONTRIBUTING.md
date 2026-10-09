@@ -16,6 +16,11 @@ For each update:
   pristine touched files. Do not generate base hashes from a patched tree.
 - Keep default `series` order explicit. Put known-failing or unbooted work
   outside the default path and explain how far it was tested.
+- End every `series` with `NNNN-identify-experimental-build.patch`, which makes
+  the build report a version ending in `-exp`. Refresh it with the base and
+  update the table in [TESTING.md](TESTING.md#know-what-you-are-running).
+  `scripts/validate.py` enforces this. KWin marks its package description
+  and experiment revision instead.
 - Include any consumer code, comparison switch and required install/rollback
   tools. Document their baseline and current limitations.
 - Update compatibility, known issues, evidence dates and license/author notices.

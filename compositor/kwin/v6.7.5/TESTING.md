@@ -48,7 +48,8 @@ Read two lines, every time, and again after any system update:
 
 - `Baked gate:` must say it matches the running kernel. On a mismatch every
   patch is inert and any measurement is meaningless; rebuild with
-  `./install.sh` to re-gate. A pacman hook also warns when a kernel or kwin
+  `./install.sh` to re-gate, or `./install.sh --kernel REL` to gate on an
+  installed kernel you have not booted yet. A pacman hook also warns when a kernel or kwin
   update breaks this.
 - `Opt-in (kwinrc):` says whether the policy is live right now.
 

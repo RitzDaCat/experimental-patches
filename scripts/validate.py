@@ -10,6 +10,9 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
+KWIN = ROOT / "compositor/kwin/v6.7.5"
+# Apply-based builds report a version ending in -exp; KWin uses its package description.
+IDENTITY = "identify-experimental-build.patch"
 
 
 def safe_path(value):
@@ -75,14 +78,16 @@ def main():
             for name in names:
                 if Path(name).name != name or not name.endswith(".patch") or not (directory / name).is_file():
                     errors.append(f"{series.relative_to(ROOT)}: missing or invalid patch {name}")
+            if directory != KWIN / "patches" and names and not names[-1].endswith(IDENTITY):
+                errors.append(f"{series.relative_to(ROOT)}: must end with the {IDENTITY}")
 
     kernel = ROOT / "kernel/sched-ext/cachyos-7.2.9"
     default = [line for line in (kernel / "series").read_text().splitlines()
                if line and not line.startswith("#")]
-    if default != ["0001-bpf-native-scalar-bitops.patch", "0002-sched-ext-dsq-direct-index.patch"]:
+    if {"0003-sched-wake-signals.patch", "0004-sched-ext-lean-idle-claim.patch"} & set(default):
         errors.append("known-warning/unbooted kernel work must remain outside the default series")
 
-    bundle = ROOT / "compositor/kwin/v6.7.5"
+    bundle = KWIN
     recipe = subprocess.run(
         ["bash", "-c", 'startdir=$1; source "$1/PKGBUILD"; '
          'for i in "${!source[@]}"; do '

@@ -1,11 +1,12 @@
 # goxlr-utility — v1.2.4
 
-A patch for [goxlr-utility](https://github.com/GoXLR-on-Linux/goxlr-utility),
+A patch, plus an identity patch, for [goxlr-utility](https://github.com/GoXLR-on-Linux/goxlr-utility),
 the Linux daemon for TC-Helicon GoXLR mixers.
 
 | # | Patch | In short | Status |
 | --- | --- | --- | --- |
 | 1 | [audio-reuse-input-read-buffers](0001-audio-reuse-input-read-buffers.patch) | Stop allocating a new buffer on every sampler read | Builds; not installed or live-tested |
+| 2 | [identify-experimental-build](0002-identify-experimental-build.patch) | Daemon version ends in `-exp` | Builds; `--version` prints `1.2.4-exp` |
 
 ## Before you start
 
@@ -13,6 +14,7 @@ the Linux daemon for TC-Helicon GoXLR mixers.
 - **Source:** the complete patch is included here; no private repository is needed.
 - **License:** MIT, with the [upstream notice](LICENSE) retained.
 - **Apply:** `scripts/apply.sh audio/goxlr-utility/v1.2.4 /path/to/goxlr-utility`
+- **Verify:** `goxlr-daemon --version` prints `goxlr-daemon 1.2.4-exp`.
 - Keep your current goxlr-utility package so you can reinstall it.
 
 Check out the matching public source tag, check and apply this patch, then
@@ -27,6 +29,7 @@ Newest first. Tester results get a row here too.
 
 | Date | Base | How far | Machine | Result |
 | --- | --- | --- | --- | --- |
+| 2026-10-09 | v1.2.4 tag | Compiles | — | Patches 1–2 apply; debug build of `goxlr-daemon` prints `goxlr-daemon 1.2.4-exp`. Not installed or run |
 | 2026-10-07 | v1.2.4 tag | Applies | — | Applies cleanly |
 | 2026-08-10 | v1.2.4 tag | Compiles | — | `cargo fmt --check` and `cargo check -p goxlr-audio` pass. Not packaged or run |
 
@@ -59,3 +62,15 @@ packaged, installed or run.
 2. Compare the daemon's CPU time over the same 10 seconds before and after,
    for example with `pidstat -p $(pidof goxlr-daemon) 10 1`.
 3. Watch for new audio dropouts or crackle.
+
+## 2. Experimental build identity
+
+**What it changes.** Appends `-exp` to the daemon's version: the startup log
+line, the `daemon_version` sent to clients and shown in the UI, and
+`goxlr-daemon --version`.
+
+**Why.** A tester must be able to tell the patched daemon from the stock one.
+
+**Expected result.** No behaviour change; the version reads `1.2.4-exp`.
+
+**How to test.** `goxlr-daemon --version`, or the version shown in the UI.

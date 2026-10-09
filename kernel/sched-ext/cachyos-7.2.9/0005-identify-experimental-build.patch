@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 12:53:53 -0500
+Subject: [PATCH] localversion: tag experimental-patches builds with -exp
+
+Add localversion.30-exp so a kernel built from this collection reports a
+release ending in -exp, such as 7.2.9-1-cachyos-exp, in uname -r and its
+/usr/lib/modules directory. The Arch and CachyOS PKGBUILDs write
+localversion.10-pkgrel and localversion.20-pkgname; scripts/setlocalversion
+reads localversion* files in name order, so this suffix comes last.
+---
+ localversion.30-exp | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 localversion.30-exp
+
+diff --git a/localversion.30-exp b/localversion.30-exp
+new file mode 100644
+index 0000000..5132f1d
+--- /dev/null
++++ b/localversion.30-exp
+@@ -0,0 +1 @@
++-exp
+-- 
+2.56.0
+

@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 12:55:52 -0500
+Subject: [PATCH] daemon: tag experimental-patches builds with -exp
+
+Append -exp to the version a build from this collection reports: the
+startup log line (Starting GoXLR Daemon v1.2.4-exp), the daemon_version
+sent to clients and shown in the UI, and goxlr-daemon --version. cli.rs
+spells the suffix itself because build.rs includes it outside the crate.
+---
+ daemon/src/cli.rs  | 2 +-
+ daemon/src/main.rs | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/daemon/src/cli.rs b/daemon/src/cli.rs
+index 0f95c7cb..badb71be 100644
+--- a/daemon/src/cli.rs
++++ b/daemon/src/cli.rs
+@@ -3,7 +3,7 @@ use directories::ProjectDirs;
+ use std::path::PathBuf;
+ 
+ #[derive(Parser, Debug)]
+-#[command(about, version, author)]
++#[command(about, version = concat!(env!("CARGO_PKG_VERSION"), "-exp"), author)]
+ pub struct Cli {
+     /// Minimum log level to print out
+     #[arg(long, value_enum)]
+diff --git a/daemon/src/main.rs b/daemon/src/main.rs
+index f42a83b1..a05b0b79 100644
+--- a/daemon/src/main.rs
++++ b/daemon/src/main.rs
+@@ -55,7 +55,7 @@ mod shutdown;
+ mod tray;
+ mod tts;
+ 
+-const VERSION: &str = env!("CARGO_PKG_VERSION");
++const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-exp");
+ 
+ #[allow(dead_code)]
+ const ICON: &[u8] = include_bytes!("../resources/goxlr-utility-large.png");
+-- 
+2.56.0
+

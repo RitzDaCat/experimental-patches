@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Build and install the latest patched KWin.
 #
-# Usage: ./install.sh [--yes]
+# Usage: ./install.sh [--yes] [--kernel REL]
 #
 # Installs the build dependencies kwin-latencyctl preflights, builds the
 # package, verifies the lock screen was compiled in, then installs it.
 # Reboot afterwards -- a Wayland compositor cannot be replaced in place.
+#
+# --kernel REL bakes that release in as the experiment gate instead of the
+# running kernel, for when the next boot is a different installed kernel.
 
 set -euo pipefail
 
@@ -14,9 +17,14 @@ cd "$(dirname "$(readlink -f "$0")")"
 CTL=./bin/kwin-latencyctl
 PROFILE="${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/90-kwin-latency.conf"
 GLOBAL=()
-if [[ ${1-} == --yes ]]; then
-    GLOBAL=(--yes)
-fi
+target=$(uname -r)
+while (( $# )); do
+    case $1 in
+        --yes) GLOBAL=(--yes); shift ;;
+        --kernel) [[ $# -ge 2 ]] || { echo "--kernel needs a release" >&2; exit 1; }; target=$2; shift 2 ;;
+        *) echo "unknown option: $1 (usage: ./install.sh [--yes] [--kernel REL])" >&2; exit 1 ;;
+    esac
+done
 
 # The package is an Arch PKGBUILD and every lifecycle path -- build, install,
 # and above all rollback -- goes through pacman. Without it the first failure is
@@ -98,23 +106,25 @@ if [[ -n $pending ]]; then
 fi
 echo "    no pending kernel update"
 
-# 3. The gate must name the running kernel or nothing takes effect. Delegate the
-# fix to kwin-latencyctl so its own --yes/--dry-run handling and profile backup
+# 3. The gate must name the kernel that will boot or nothing takes effect. That
+# is the running kernel unless --kernel says otherwise. Delegate the profile fix
+# to kwin-latencyctl so its own --yes/--dry-run handling and profile backup
 # apply; this script does not edit the profile itself.
-running=$(uname -r)
+[[ -d /usr/lib/modules/$target ]] \
+    || { echo "ERROR: no module tree for '$target' in /usr/lib/modules -- that kernel cannot boot" >&2; exit 1; }
 gated=$(awk -F= '/^KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE=/ { print $2; exit }' \
     "$PROFILE" 2>/dev/null || true)
 if [[ ! -f $PROFILE ]]; then
-    echo "    no profile installed -- the build bakes '$running' in as the default gate"
-elif [[ $gated != "$running" ]]; then
-    echo "    kernel gate is '${gated:-unset}', running kernel is '$running' -- re-gating"
-    "$CTL" "${GLOBAL[@]}" enable --kernel "$running"
+    echo "    no profile installed -- the build bakes '$target' in as the default gate"
+elif [[ $gated != "$target" ]]; then
+    echo "    kernel gate is '${gated:-unset}', target kernel is '$target' -- re-gating"
+    "$CTL" "${GLOBAL[@]}" enable --kernel "$target"
 else
-    echo "    kernel gate matches running kernel: $running"
+    echo "    kernel gate matches target kernel: $target"
 fi
 
-echo "==> Building package"
-"$CTL" "${GLOBAL[@]}" build
+echo "==> Building package (kernel gate: $target)"
+"$CTL" "${GLOBAL[@]}" build --kernel "$target"
 
 package=$(ls -t artifacts/packages/*.pkg.tar.zst 2>/dev/null | head -n 1)
 [[ -n $package ]] || { echo "no package found in artifacts/packages" >&2; exit 1; }
@@ -191,9 +201,10 @@ cat <<'EOF'
 
         ./bin/kwin-latencyctl status
 
-    Read the "Opt-in (kwinrc)" line, and check the kernel gate matches uname -r.
+    Read the "Opt-in (kwinrc)" line, and check the baked gate matches uname -r.
     If the gate does not match, every patch fails closed to stock behaviour and
-    any measurement you take is meaningless.
+    any measurement you take is meaningless. Booting a different installed
+    kernel than the one you built on? Rebuild with: ./install.sh --kernel REL
 
     Then confirm the lock screen is back:
 

@@ -1,5 +1,5 @@
 # Tracked verified release identity. PKGBUILD may stage a later revision, but
 # install remains pinned here until that package is built and validated.
-PROJECT_REVISION=24
+PROJECT_REVISION=25
 PACMAN_VERSION=6.7.5-3.1
 CANDIDATE_PACKAGE=kwin-6.7.5-3.1-x86_64.pkg.tar.zst

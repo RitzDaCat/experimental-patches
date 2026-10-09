@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Fri, 9 Oct 2026 12:54:37 -0500
+Subject: [PATCH] version: tag experimental-patches builds with -exp
+
+Append -exp to the version a build from this collection reports, in the
+overlay's version line (MANGOHUD_VERSION) and in mangohud --version. A
+release tarball build shows v0.8.4-exp; a patched git checkout shows
+git describe's dirty marker first, v0.8.4+-exp.
+---
+ src/meson.build | 2 +-
+ version.h.in    | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/meson.build b/src/meson.build
+index 9534a18..8cb268c 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -30,7 +30,7 @@ conf_data = configuration_data()
+ conf_data.set('ld_libdir_mangohud_abs', libdir_mangohud)
+ conf_data.set('ld_libdir_mangohud', ld_libdir_mangohud)
+ conf_data.set('cpu_family', host_machine.cpu_family())
+-conf_data.set('version', describe_ver)
++conf_data.set('version', describe_ver + '-exp')
+ 
+ overlay_shaders = [
+   'overlay.frag',
+diff --git a/version.h.in b/version.h.in
+index 8603279..0fae2fe 100644
+--- a/version.h.in
++++ b/version.h.in
+@@ -1,3 +1,3 @@
+ #pragma once
+ 
+-#define MANGOHUD_VERSION "@VCS_TAG@"
++#define MANGOHUD_VERSION "@VCS_TAG@-exp"
+-- 
+2.56.0
+

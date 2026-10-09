@@ -2,7 +2,7 @@
 pkgname=kwin
 pkgver=6.7.5
 pkgrel=3.1
-_kwin_latency_revision=24
+_kwin_latency_revision=25
 pkgdesc="KWin 6.7.5 latency experiment revision $_kwin_latency_revision"
 xdata=("kwin-latency-revision=$_kwin_latency_revision"
        "kwin-latency-base=$pkgver-$pkgrel")
@@ -137,6 +137,8 @@ sha256sums=('6baa910b732d93c48c90f9c1cc685cc93d0b8de0cdf138c24192c045bc3a48e2'
 prepare() {
   # The Arch 6.7.4-5..7 backport (2d0613ac, wayland global removal timer) is
   # part of the 6.7.5 release, so the series starts on the pristine tarball.
+  # Arch 6.7.5-2 and -3 are Qt 6.12 rebuilds of that same tarball with no
+  # distribution patches, so the series is unchanged on the 6.7.5-3.1 base.
   patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0001-precise-timer.patch"
   patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0002-renderloop-timerfd.patch"
   patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0003-wakeup-instrumentation.patch"
@@ -162,11 +164,13 @@ prepare() {
 
 build() {
   rm -rf build
-  # Bake the build machine's kernel release into the binary as the default
-  # experiment gate (patch 0019 reads this macro), so the low-latency policy
-  # holds with no environment.d profile. A kernel update still fails closed
-  # to stock behaviour until the package is rebuilt.
-  export CXXFLAGS="${CXXFLAGS-} -DKWIN_LATENCY_BAKED_KERNEL_RELEASE=\"\\\"$(uname -r)\\\"\""
+  # Bake a kernel release into the binary as the default experiment gate
+  # (patch 0019 reads this macro), so the low-latency policy holds with no
+  # environment.d profile. KWIN_LATENCY_GATE_KERNEL names the kernel that will
+  # be booted (kwin-latencyctl build --kernel sets it); the default is the
+  # build machine's running kernel. A kernel update still fails closed to
+  # stock behaviour until the package is rebuilt.
+  export CXXFLAGS="${CXXFLAGS-} -DKWIN_LATENCY_BAKED_KERNEL_RELEASE=\"\\\"${KWIN_LATENCY_GATE_KERNEL:-$(uname -r)}\\\"\""
   cmake -B build -S $pkgname-$pkgver \
     -DCMAKE_INSTALL_LIBEXECDIR=lib \
     -DBUILD_TESTING=ON \
@@ -188,13 +192,17 @@ build() {
 }
 
 check() {
-  # Only the two autotests that cover the patched colour paths run here.
-  # 0014 adds testSrgbLinearSegmentRoundtrip to kwin-testColorspaces and 0016
-  # adds testNonBypassableNamedTransferFunctions to kwin-testMockDrm. Both are
+  # Only the tests that cover the patched colour paths run here. 0014 adds
+  # testSrgbLinearSegmentRoundtrip to kwin-testColorspaces and 0016 adds
+  # testNonBypassableNamedTransferFunctions to kwin-testMockDrm. Both are
   # pure-computation tests, so they run without a display. The rest of the KWin
   # suite needs a live Wayland/X session and cannot run inside a package build.
-  ctest --test-dir build --output-on-failure \
-    -R '^kwin-(testColorspaces|testMockDrm)$'
+  ctest --test-dir build --output-on-failure -R '^kwin-testColorspaces$'
+  # testMockDrm is run for the one patched function only. Its upstream cases
+  # open the real /dev/dri node, and testModeGeneration(1440p) hung for the
+  # full 300 s QtTest limit under a live compositor on the 6.7.5-3.1 build.
+  # Same working directory as the ctest entry (ecm_add_test sets it).
+  (cd build/autotests/drm && ../../bin/testMockDrm testNonBypassableNamedTransferFunctions)
 }
 
 package() {

@@ -65,7 +65,7 @@ Commands:
   snapshot [LABEL]        Save read-only system and display evidence
   trace [LABEL]           Measure precision timing plus isolated state sampling
   color-test              Show exact RGB/CMY/gray blocks for visual validation
-  build                   Build a new package into artifacts/packages
+  build [--kernel REL]    Build a new package into artifacts/packages
   rollback                Restore signed repository KWin and disable experiments
   remove                  Restore repository KWin and remove project config
   help                    Show this help
@@ -77,6 +77,11 @@ Install options:
 
 Capture options:
   --kernel REL            Exact kernel allowed to activate capture
+
+Build options:
+  --kernel REL            Kernel release to bake in as the default gate
+                          (default: the running kernel; name the kernel you
+                          will boot into when that differs)
 
 Global options:
   --dry-run               Print mutations without executing them
@@ -936,6 +941,20 @@ trace_command() {
 
 build_command() {
     command -v makepkg >/dev/null || die "makepkg is required"
+    local kernel
+    kernel=$(uname -r)
+    while (( $# )); do
+        case $1 in
+            --kernel) [[ $# -ge 2 ]] || die "--kernel needs a release"; kernel=$2; shift 2 ;;
+            *) die "unknown build option: $1" ;;
+        esac
+    done
+    [[ -n $kernel && $kernel != *$'\n'* ]] || die "invalid kernel release"
+    # The gate is an exact string match at KWin startup. A release with no
+    # module tree cannot be booted, so a package gated on it is stock forever.
+    [[ -d /usr/lib/modules/$kernel ]] \
+        || warn "no module tree for '$kernel' in /usr/lib/modules; the gate will never match unless that kernel is installed"
+    note "Baking kernel gate: $kernel"
     local dependencies=(extra-cmake-modules plasma-wayland-protocols wayland-protocols) missing
     missing=$(pacman -T "${dependencies[@]}" 2>/dev/null || true)
     if [[ -n $missing ]]; then
@@ -955,10 +974,20 @@ build_command() {
             run cp -a "$candidate" "$archived"
         fi
     fi
+    # makepkg copies file:// sources into SRCDEST once and never refreshes them,
+    # so an edited repo file fails its own checksum against the stale copy.
+    # Drop those copies; makepkg re-copies them from the checkout. Downloaded
+    # sources (the tarball, the upstream commits) stay cached.
+    local source
+    while IFS= read -r source; do
+        [[ $source == file://* ]] || continue
+        run rm -f "$SOURCE_DIR/${source##*/}"
+    done < <(bash -c 'cd "$1" && source PKGBUILD && printf "%s\n" "${source[@]}"' _ "$ROOT")
     run env \
         "PKGDEST=$PACKAGE_DIR" \
         "SRCDEST=$SOURCE_DIR" \
         "BUILDDIR=$BUILD_DIR" \
+        "KWIN_LATENCY_GATE_KERNEL=$kernel" \
         makepkg --cleanbuild --syncdeps --force
 }
 
@@ -1011,7 +1040,7 @@ case $command in
     snapshot) (( $# <= 1 )) || die "snapshot takes at most one label"; snapshot_command "$@" ;;
     trace) (( $# <= 1 )) || die "trace takes at most one label"; trace_command "$@" ;;
     color-test) (( $# == 0 )) || die "color-test takes no options"; "$ROOT/scripts/run_color_validation.sh" ;;
-    build) (( $# == 0 )) || die "build takes no options"; build_command ;;
+    build) build_command "$@" ;;
     rollback) (( $# == 0 )) || die "rollback takes no options"; rollback_command ;;
     remove) (( $# == 0 )) || die "remove takes no options"; remove_command ;;
     *) die "unknown command: $command (run '$0 help')" ;;

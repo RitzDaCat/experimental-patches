@@ -1,6 +1,6 @@
 # MangoHud — v0.8.4
 
-Two fixes for [MangoHud](https://github.com/flightlessmango/MangoHud)'s
+Two fixes, plus an identity patch, for [MangoHud](https://github.com/flightlessmango/MangoHud)'s
 control socket, which the upstream `mangohud-control` client uses to talk to a running game's
 overlay (toggle it, start and stop logging and so on).
 
@@ -8,6 +8,7 @@ overlay (toggle it, start and stop logging and so on).
 | --- | --- | --- | --- |
 | 1 | [os_socket CLOEXEC](0001-os_socket-set-CLOEXEC-and-stop-leaking-fds.patch) | Child processes no longer inherit the socket; no fd leak on a failed bind | Fixes a leak seen with World of Warcraft |
 | 2 | [shared control socket](0002-control-share-one-listening-socket-across-Vulkan-ins.patch) | One socket per game, shared by all its Vulkan instances | Fixes the control socket not answering in World of Warcraft |
+| 3 | [identify-experimental-build](0003-identify-experimental-build.patch) | Version ends in `-exp` in the overlay and `mangohud --version` | Applies; version strings checked |
 
 ## Before you start
 
@@ -30,6 +31,7 @@ Newest first. Tester results get a row here too.
 
 | Date | Base | How far | Machine | Result |
 | --- | --- | --- | --- | --- |
+| 2026-10-09 | v0.8.4 tag | Applies | — | Patches 1–3 apply cleanly; the patch 3 Meson constructs give `v0.8.4+-exp` from a patched git checkout |
 | 2026-10-07 | v0.8.4 tag | Applies | — | Both patches apply cleanly |
 | 2026-08-03 → now | v0.8.4 | Daily use | Ryzen 7 9800X3D, RTX 4090 (NVIDIA 615.71.09) | Installed as the system Vulkan layer, inside a larger build of the author's branch (`v0.8.4-9-gd8a0e45`) |
 
@@ -73,3 +75,16 @@ Vulkan instance before the real one.
 **How to test.** In World of Warcraft (or another vkd3d-proton game) with
 `control=mangohud-%p` set, `mangohud-control -s mangohud-<game pid> toggle-hud`
 should hide the overlay instead of timing out.
+
+## 3. Experimental build identity
+
+**What it changes.** Appends `-exp` to the version in the overlay
+(`MANGOHUD_VERSION`) and in `mangohud --version`.
+
+**Why.** A tester must be able to tell the patched layer from the stock one.
+
+**Expected result.** No behaviour change. A release tarball build shows
+`v0.8.4-exp`; a patched git checkout shows `git describe`'s dirty marker
+first, `v0.8.4+-exp`.
+
+**How to test.** `mangohud --version`, or read the version line in the overlay.

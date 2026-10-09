@@ -3,3 +3,4 @@
 0001-bpf-native-scalar-bitops.patch
 0002-sched-ext-dsq-direct-index.patch
 0003-sched-wake-signals.patch
+0005-identify-experimental-build.patch

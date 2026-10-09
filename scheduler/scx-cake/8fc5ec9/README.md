@@ -18,6 +18,10 @@ IRQ-time support (`--kernel-signals off|observe|on`, `--signal-report`).
 The snapshot also contains the intervening committed scheduler changes; it is
 not a minimal patch isolating one performance mechanism.
 
+Patch 2 sets the version to `1.2.1-exp`, so `--version`, the startup banner and
+the ops name in `/sys/kernel/sched_ext/root/ops` (`cake_1.2.1_exp…`) name the
+experimental build. `Cargo.lock` carries the same version for `--locked` builds.
+
 ## Why and expected result
 
 The kernel cannot improve scheduling through these kfuncs unless a consumer
@@ -37,6 +41,7 @@ cd /path/to/scx
 cargo build --locked --release -p scx_cake
 cargo test --locked -p scx_cake
 sha256sum target/release/scx_cake
+./target/release/scx_cake --version   # scx_cake 1.2.1-exp…
 ```
 
 Install the build prerequisites and initialize submodules according to that
@@ -58,6 +63,7 @@ The `--lean-idle` consumer for kernel patch 4 is uncommitted and excluded.
 
 | Date | Gate | Result |
 | --- | --- | --- |
+| 2026-10-09 | Apply and lockfile | Both patches apply to the pinned public base; `cargo metadata --locked` accepts the `1.2.1-exp` lockfile. Not built |
 | 2026-10-08 | Apply and source identity | Patch applies to the pinned public base; all five resulting files exactly reproduce the committed snapshot |
 
 This exported companion has not been rebuilt, verifier-loaded, activated or
