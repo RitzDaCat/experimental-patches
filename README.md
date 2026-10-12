@@ -5,52 +5,53 @@
 > patch set's evidence and known issues before you test it.
 
 > [!CAUTION]
-> **Experimental. Use at your own risk.** These patches are for testing only:
-> to find out whether they improve game performance and latency on Linux. Do
-> not run them on a machine you depend on.
+> **Experimental. Use at your own risk.** For testing only: to find out whether these
+> improve game performance and latency on Linux. Do not run them on a machine you depend on.
 
-Patches for the Linux desktop and gaming stack: the kernel, compositor, audio
-and tools. This is a standalone testing collection: patch files, supporting
-scheduler changes, KWin lifecycle tools and tester guides are included here.
-Build dependencies and the matching public upstream sources are still needed.
+Patches for the Linux desktop and gaming stack — kernel, compositor, audio and tools — as a
+standalone testing collection: patch files, supporting scheduler changes, KWin lifecycle
+tools and tester guides. Build dependencies and matching public upstream sources are still
+needed.
 
-The purpose is to collect reproducible improvements, unchanged results and
-regressions across machines, then use that evidence to propose changes upstream.
-Some entries are fixes or upstream backports; most experiments have no proven
-game-performance benefit yet. Each patch set states its evidence and limitations.
+```mermaid
+flowchart LR
+    T[testers on many machines] --> E[reproducible results:<br/>wins · no change · regressions]
+    E --> U[evidence for upstream proposals]
+```
 
-## Risks
+Some entries are fixes or upstream backports; most have **no proven game-performance benefit
+yet**. Each patch set states its evidence and limitations.
 
-- **Kernel patches** change the scheduler and core wake-up paths. A bad one
-  can stop the machine from booting, freeze it or crash it. Anything unsaved
-  is lost when that happens.
-- **Compositor patches** can leave you at a black screen with no desktop.
-- **Audio and tool patches** can cause audio dropouts, a crashing daemon or a
-  broken overlay.
-- This collection has not been reviewed as a whole by the upstream projects.
-  Hardware experience so far comes from the author's Ryzen 7 9800X3D and
-  RTX 4090. Other hardware needs independent reports.
-- There is no warranty. If something breaks, you fix it by going back to
-  stock.
+---
 
-Before you test:
+## ⚠️ Risks
 
-- Keep a way back that you have tried: a stock kernel in your boot menu, or
-  the stock package in your package cache. See [TESTING.md](TESTING.md).
-- Save your work and back up anything you care about.
-- Do not test on a work machine or one you need the next day.
+| Area | Worst case |
+|---|---|
+| 🐧 Kernel | scheduler and wake-path changes: no boot, freeze or crash · unsaved work is lost |
+| 🪟 Compositor | black screen, no desktop |
+| 🔊 Audio / 🛠️ tools | audio dropouts, a crashing daemon, a broken overlay |
+| 🌐 Whole collection | not reviewed by upstream as a whole · hardware so far: Ryzen 7 9800X3D + RTX 4090 · **no warranty**: if it breaks, go back to stock |
 
-## Patch sets
+**Before you test** ✅ a stock kernel in your boot menu or stock package in your cache, tried
+([TESTING.md](TESTING.md)) · ✅ work saved and backed up · ✅ not a work machine or one you need tomorrow.
+
+---
+
+## 📦 Patch sets
 
 | Area | Patch set | Base | In short | Status |
 | --- | --- | --- | --- | --- |
-| Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.9/) | CachyOS 7.2.9-1 / -2 | Cheaper, better-informed sched_ext scheduling | Default: 1–2 plus identity patch 5. Patch 3 requires explicit selection (warning fix not yet booted); 4 boots, unmeasured |
-| Scheduler | [scx_cake companion](scheduler/scx-cake/8fc5ec9/) | Public scx commit `8fc5ec9b` | Consumer and comparison flags for kernel patches 1 and 3 | Source snapshot included; patch 4's consumer is not included |
-| Compositor | [kwin](compositor/kwin/) | KWin 6.7.5 | Compositor wakes later and more precisely | 21 patches, installer, opt-in, capture and rollback tools included; input-to-photon gain not shown |
-| Audio | [goxlr-utility](audio/goxlr-utility/v1.2.4/) | v1.2.4 | No buffer allocation per sampler read | Builds; not live-tested |
-| Tools | [mangohud](tools/mangohud/v0.8.4/) | v0.8.4 | Control socket fixes | In daily use on the author's machine |
+| 🐧 Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.9/) | CachyOS 7.2.9-1 / -2 | cheaper, better-informed sched_ext scheduling | default 1–2 + identity 5 · patch 3 opt-in (warning fix not yet booted) · patch 4 boots; `lazy` measured win in KovaaK's |
+| 🍰 Scheduler | [scx_cake companion](scheduler/scx-cake/8fc5ec9/) | public scx `8fc5ec9b` | consumer and comparison flags for kernel patches 1 and 3 | source snapshot · patch 4 consumer not included (it is in the scx nightly) |
+| 🪟 Compositor | [kwin](compositor/kwin/) | KWin 6.7.5 | compositor wakes later and more precisely | 21 patches + installer, opt-in, capture and rollback tools · input-to-photon gain not shown |
+| 🔊 Audio | [goxlr-utility](audio/goxlr-utility/v1.2.4/) | v1.2.4 | no buffer allocation per sampler read | builds · not live-tested |
+| 🛠️ Tools | [mangohud](tools/mangohud/v0.8.4/) | v0.8.4 | control socket fixes | daily use on the author's machine |
 
-## How each patch set is laid out
+**Status words** · **measured** = numbers exist · **shown** = from reading the source · **not shown** = no evidence yet. A patch that builds is not a speedup.
+
+<details>
+<summary><b>📁 How each patch set is laid out</b></summary>
 
 ```
 <area>/<component>/<base version>/
@@ -62,64 +63,54 @@ Before you test:
     NNNN-identify-experimental-build.patch
 ```
 
-Every series ends with an identity patch, so a patched build says so in its
-version: `uname -r`, `--version` or the overlay ends in `-exp`. KWin marks its
-package description and experiment revision instead. See
-[Know what you are running](TESTING.md#know-what-you-are-running).
+Every series ends with an **identity patch**, so a patched build says so: `uname -r`,
+`--version` or the overlay ends in `-exp` (KWin marks its package description and experiment
+revision instead) — see [Know what you are running](TESTING.md#know-what-you-are-running).
 
-Patch descriptions cover four questions:
+| Each patch description answers | Kernel sets add |
+|---|---|
+| **What it changes** · **Why** · **Expected result** · **How to test** | **Compatibility** · **Known issues** |
 
-- **What it changes:** the code change, in plain words.
-- **Why:** the problem it addresses.
-- **Expected result:** what should improve, and what has been shown so far.
-- **How to test:** a concrete way to compare with and without it.
+Each README also has a **Tested on** table: version, machine, how far (applies → compiles → boots → daily use → measured).
+</details>
 
-Each README also has a **Tested on** table: which version was tested, on what
-machine, and how far it got (applies, compiles, boots, daily use, measured).
-Kernel patch sets add **Compatibility** and **Known issues**.
+---
 
-Status uses one vocabulary: **measured** (numbers exist), **shown** (from
-reading the source) or **not shown** (no evidence yet). A patch that builds is
-not a speedup.
+## 🧪 Start testing
 
-## Start testing
+```mermaid
+flowchart LR
+    A[1 · pick a set,<br/>read known issues] --> B[2 · TESTING.md,<br/>tested rollback] --> C[3 · exact public<br/>source base] --> D[4 · check · apply · build ·<br/>verify -exp + feature] --> E[5 · file a Test result or<br/>Bug / regression issue]
+```
 
-1. Choose one patch set and read its compatibility and known issues.
-2. Follow [TESTING.md](TESTING.md), including a tested rollback path.
-3. Get the exact public source base listed in that patch set's guide.
-4. Check, apply and build; then [verify](TESTING.md#know-what-you-are-running)
-   that the `-exp` build and the feature are actually active.
-5. Submit a **Test result** or **Bug / regression** issue using the included forms.
-
-For kernel, scheduler, audio and MangoHud sources, run from this repo's root:
+Kernel, scheduler, audio and MangoHud — from this repo's root:
 
 ```bash
 scripts/apply.sh <patch-set-directory> <source-directory> --check
 scripts/apply.sh <patch-set-directory> <source-directory>
 ```
 
-The helper needs Bash, Git, GNU patch and coreutils. It verifies the touched
-source files against `base.sha256` and preflights the whole selected series
-without fuzzy matching before editing your tree. Its temporary copies contain
-only touched files and are removed on exit. Use a disposable source tree: an
-unexpected write failure during the final apply can still leave partial changes.
+| `apply.sh` | |
+|---|---|
+| Needs | Bash, Git, GNU patch, coreutils |
+| Checks | touched files against `base.sha256`; preflights the whole series, no fuzzy matching |
+| Temp files | touched files only, removed on exit |
+| ⚠️ | use a disposable source tree: a write failure during the final apply can leave partial changes |
 
-For **KWin**, follow the [bundled guide](compositor/kwin/v6.7.5/TESTING.md)
-and installer. It preserves the compositor's install and recovery checks.
+🪟 **KWin:** follow its [bundled guide](compositor/kwin/v6.7.5/TESTING.md) and installer (keeps the install and recovery checks).
 
-## Rules for this repo
+---
 
-- All files needed specifically for these experiments belong here. Tester
-  instructions must not depend on access to a private development repository.
-- One folder per area, component and base version. A new base gets a new folder.
-- Only current candidates are kept. Older versions live in git history.
-- Export source changes with `git format-patch` or `git diff --binary`; record
-  the base and source identity. Regenerate context from matching source instead
-  of editing patch bodies by hand.
-- Include a project's needed installer, verification and rollback tooling.
-- Keep upstream licenses and attribution; see [LICENSING.md](LICENSING.md).
+## 📜 Rules for this repo
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for refreshing patches, validating this
-collection and preparing evidence for upstream review.
+| Rule |
+|---|
+| Everything these experiments need lives here — tester steps never depend on a private repo |
+| One folder per area, component and base version; a new base gets a new folder |
+| Only current candidates are kept; older versions live in git history |
+| Export with `git format-patch` or `git diff --binary`; record base and source identity; regenerate context from matching source, never hand-edit patch bodies |
+| Include each project's installer, verification and rollback tooling |
+| Keep upstream licenses and attribution ([LICENSING.md](LICENSING.md)) |
 
-Results and bugs: see [TESTING.md](TESTING.md#reporting) for what to include.
+[CONTRIBUTING.md](CONTRIBUTING.md): refreshing patches, validating, preparing upstream evidence
+· results and bugs: [TESTING.md](TESTING.md#reporting).

@@ -4,4 +4,4 @@
 0005-identify-experimental-build.patch
 # Wake signals are excluded until the boot-warning fix has booted.
 # Explicit research selection: --series series.wake-signals
-# Lean idle is not included in any series: unmeasured, no bundled consumer.
+# Lean idle is not included in any series: apply by hand; its consumer is the scx_cake nightly, not bundled.
