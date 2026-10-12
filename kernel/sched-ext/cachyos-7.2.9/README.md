@@ -40,6 +40,7 @@ boots, daily use, measured. Tester results get a row here too.
 
 | Date | Kernel | Patches | How far | Machine | Result |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-12 | `7.2.9-2-cachyos-custom` | 1–4 | Measured (patch 1, game) | Ryzen 7 9800X3D, RTX 4090, KWin | KovaaK's menu, scx_cake native vs `--portable-bitops`, 6×20 s runs in both slot orders plus one loaded: native is **not** better in frames; portable showed better tails (1 % low +4.4 %, stddev −21 % pooled), unexplained since callback cost is equal (±1–2 ns) and the JIT does inline. Treat patch 1's game benefit as unproven |
 | 2026-10-12 | `7.2.9-2-cachyos-custom` | 1–4 | Measured (patch 4, loaded) | Ryzen 7 9800X3D, RTX 4090, KWin | Same scene under 16 nice-10 CPU hogs (98 % busy), `lazy` vs `off`: p99.9 −2.4 %, 0.1 % low +6.6 %, worst frame −16 %; no metric worse. scx_cake now defaults to `lazy` |
 | 2026-10-12 | `7.2.9-2-cachyos-custom` | 1–4 | Measured (patch 4) | Ryzen 7 9800X3D, RTX 4090, KWin | KovaaK's menu, 12×30 s ABBA, scx_cake `--lean-idle`: `lazy` vs `off` avg FPS +1.4 %, p99 frame time −5.1 %, 1 % low +7.5 %, all 16/16 pairs; `on` ≈ `off`. One scene, quiet host |
 | 2026-10-12 | CachyOS 7.2.9-1 source (touched files) | 1–4, 5 | Applies | — | Patch 3 now includes the `default_wake_function()` warning fix; `series.wake-signals` and 1–4 stacked apply with no fuzz. Fix not compiled or booted yet |
