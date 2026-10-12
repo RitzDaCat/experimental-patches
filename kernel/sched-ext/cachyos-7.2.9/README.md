@@ -20,7 +20,7 @@ expert development; it boots, but is unmeasured and its scheduler consumer is no
 | 1 | [bpf-native-scalar-bitops](0001-bpf-native-scalar-bitops.patch) | Bit-counting as one CPU instruction instead of a software routine | **Measured** in microbenchmarks; in daily use on the author's machine |
 | 2 | [sched-ext-dsq-direct-index](0002-sched-ext-dsq-direct-index.patch) | Find a dispatch queue by array index instead of a hash lookup | In daily use on the author's machine; speedup **not shown** |
 | 3 | [sched-wake-signals](0003-sched-wake-signals.patch) | Tell the scheduler a task woke because of input or a finished GPU job | Excluded from default `series`: boot-warning fix not yet booted ([known issue](#known-issues)); no effect observed on KWin + NVIDIA |
-| 4 | [sched-ext-lean-idle-claim](0004-sched-ext-lean-idle-claim.patch) | Cheaper way to claim an idle CPU | Boots; **not measured.** Not in `series` |
+| 4 | [sched-ext-lean-idle-claim](0004-sched-ext-lean-idle-claim.patch) | Cheaper way to claim an idle CPU | Boots; lazy mode gained in one game scene. Not in `series` |
 | 5 | [identify-experimental-build](0005-identify-experimental-build.patch) | Kernel release ends in `-exp`, e.g. `7.2.9-1-cachyos-exp` | In both series; applies |
 
 ## Compatibility
@@ -40,6 +40,7 @@ boots, daily use, measured. Tester results get a row here too.
 
 | Date | Kernel | Patches | How far | Machine | Result |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-12 | `7.2.9-2-cachyos-custom` | 1–4 | Measured (patch 4) | Ryzen 7 9800X3D, RTX 4090, KWin | KovaaK's menu, 12×30 s ABBA, scx_cake `--lean-idle`: `lazy` vs `off` avg FPS +1.4 %, p99 frame time −5.1 %, 1 % low +7.5 %, all 16/16 pairs; `on` ≈ `off`. One scene, quiet host |
 | 2026-10-12 | CachyOS 7.2.9-1 source (touched files) | 1–4, 5 | Applies | — | Patch 3 now includes the `default_wake_function()` warning fix; `series.wake-signals` and 1–4 stacked apply with no fuzz. Fix not compiled or booted yet |
 | 2026-10-11 → now | `7.2.9-2-cachyos-custom` | 1–4 (patch 3 without the fix) | Boots | Ryzen 7 9800X3D, RTX 4090 | Boots with `SCX_OPS_LEAN_IDLE` in BTF; patch 3 warning still logged. `--lean-idle` A/B not run |
 | 2026-10-09 | CachyOS 7.2.9-1 source (touched files) | 1–3, 5 | Applies | — | Both series apply with no fuzz. CachyOS's `setlocalversion` with the PKGBUILD's localversion files gives `7.2.9-1-cachyos-exp` |
