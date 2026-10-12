@@ -12,15 +12,15 @@ consumer for patches 1 and 3 from a pinned public scx base. Private development
 repositories are not needed.
 
 The default `series` contains **1–2** and the identity patch **5**. Patch 3 requires explicit selection
-because of its known boot warning. Patch 4 is available for source review and
-expert development; it has never booted and its scheduler consumer is not bundled.
+until its warning fix has booted. Patch 4 is available for source review and
+expert development; it boots, but is unmeasured and its scheduler consumer is not bundled.
 
 | # | Patch | In short | Status |
 | --- | --- | --- | --- |
 | 1 | [bpf-native-scalar-bitops](0001-bpf-native-scalar-bitops.patch) | Bit-counting as one CPU instruction instead of a software routine | **Measured** in microbenchmarks; in daily use on the author's machine |
 | 2 | [sched-ext-dsq-direct-index](0002-sched-ext-dsq-direct-index.patch) | Find a dispatch queue by array index instead of a hash lookup | In daily use on the author's machine; speedup **not shown** |
-| 3 | [sched-wake-signals](0003-sched-wake-signals.patch) | Tell the scheduler a task woke because of input or a finished GPU job | Excluded from default `series`: one boot warning ([known issue](#known-issues)); no effect observed on KWin + NVIDIA |
-| 4 | [sched-ext-lean-idle-claim](0004-sched-ext-lean-idle-claim.patch) | Cheaper way to claim an idle CPU | **Never booted.** Not in `series` |
+| 3 | [sched-wake-signals](0003-sched-wake-signals.patch) | Tell the scheduler a task woke because of input or a finished GPU job | Excluded from default `series`: boot-warning fix not yet booted ([known issue](#known-issues)); no effect observed on KWin + NVIDIA |
+| 4 | [sched-ext-lean-idle-claim](0004-sched-ext-lean-idle-claim.patch) | Cheaper way to claim an idle CPU | Boots; **not measured.** Not in `series` |
 | 5 | [identify-experimental-build](0005-identify-experimental-build.patch) | Kernel release ends in `-exp`, e.g. `7.2.9-1-cachyos-exp` | In both series; applies |
 
 ## Compatibility
@@ -40,6 +40,8 @@ boots, daily use, measured. Tester results get a row here too.
 
 | Date | Kernel | Patches | How far | Machine | Result |
 | --- | --- | --- | --- | --- | --- |
+| 2026-10-12 | CachyOS 7.2.9-1 source (touched files) | 1–4, 5 | Applies | — | Patch 3 now includes the `default_wake_function()` warning fix; `series.wake-signals` and 1–4 stacked apply with no fuzz. Fix not compiled or booted yet |
+| 2026-10-11 → now | `7.2.9-2-cachyos-custom` | 1–4 (patch 3 without the fix) | Boots | Ryzen 7 9800X3D, RTX 4090 | Boots with `SCX_OPS_LEAN_IDLE` in BTF; patch 3 warning still logged. `--lean-idle` A/B not run |
 | 2026-10-09 | CachyOS 7.2.9-1 source (touched files) | 1–3, 5 | Applies | — | Both series apply with no fuzz. CachyOS's `setlocalversion` with the PKGBUILD's localversion files gives `7.2.9-1-cachyos-exp` |
 | 2026-10-07 | CachyOS 7.3-rc6 source (`cachyos-7.3-rc6-1`) | 1–4 | Applies | — | 1, 2 and 3 fail; 4 applies with offsets. Needs a port before 7.3 |
 | 2026-10-07 | CachyOS 7.2.9-2 source | 1–4 | Applies | — | Applies with no fuzz. Every file the patches touch is identical to 7.2.9-1 |
@@ -54,7 +56,7 @@ The 7.2.9 kernel in daily use was built from the 7.2.8 version of patches 1–3
 
 ## Known issues
 
-**Patch 3 logs a kernel warning once per boot.** It appears early in boot,
+**Patch 3 logged a kernel warning once per boot (fixed, fix not yet booted).** It appears early in boot,
 even with no scheduler opted in:
 
 ```
@@ -66,15 +68,16 @@ WARNING: kernel/sched/core.c:7620 at default_wake_function+0x1a/0x30
 - **Cause:** patch 3 passes its wake-cause bits (`WF_SCX_INPUT` 0x100,
   `WF_SCX_FENCE` 0x200) through the normal wake flags. Stock
   `default_wake_function()` warns on any flag other than `WF_SYNC` and
-  `WF_CURRENT_CPU`, and patch 3 does not add its bits to that check. The first
+  `WF_CURRENT_CPU`, and patch 3 did not add its bits to that check. The first
   `poll()` waiter on a GPU fence trips it.
 - **Effect:** one warning in `dmesg` per boot, and the kernel is marked
   tainted (`W`). Wakeups still work. With `panic_on_warn=1` the machine would
   panic at boot, so do not test patch 3 with that setting.
-- **Fix (not applied yet):** allow `WF_SCX_SIGNAL_MASK` in
-  `default_wake_function()`'s check.
+- **Fix (in patch 3 since 2026-10-12):** `default_wake_function()`'s check
+  now allows `WF_SCX_SIGNAL_MASK`. Builds from an older patch 3 still warn.
+  Keep avoiding `panic_on_warn=1` until a fixed build has booted.
 
-**Patch 4 has never been booted.** See its section below.
+**Patch 4 boots but is unmeasured.** See its section below.
 
 ## Apply
 
@@ -200,7 +203,7 @@ report.csv`. It counts tagged wakes without changing placement. A report from
 an AMD or Intel system with tagged wakes above zero is the most useful result
 this patch can get right now.
 
-## 4. Lean idle claim (never booted)
+## 4. Lean idle claim (boots, not measured)
 
 **What it changes.** Claiming an idle CPU means clearing its bit in the idle
 mask, plus a bit in the whole-core (SMT) mask if both siblings were idle. This
@@ -221,8 +224,8 @@ choosing a CPU for a waking task. With the two masks far apart, one claim can
 dirty two cache lines that every other CPU then has to fetch again.
 
 **Expected result.** A cheaper `select_cpu`, with fewer cache-line transfers
-between cores under load. **Not shown:** the patch applies and compiles, but
-it has never been booted.
+between cores under load. **Not shown:** the patch boots on the author's
+machine, but no comparison has been run.
 
 **How to test.** Only if you are ready to fall back to your stock kernel:
 apply it by hand after the other three in a disposable research tree. The

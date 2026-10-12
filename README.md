@@ -44,7 +44,7 @@ Before you test:
 
 | Area | Patch set | Base | In short | Status |
 | --- | --- | --- | --- | --- |
-| Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.9/) | CachyOS 7.2.9-1 / -2 | Cheaper, better-informed sched_ext scheduling | Default: 1–2 plus identity patch 5. Patch 3 has a known boot warning and requires explicit selection; 4 never booted |
+| Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.9/) | CachyOS 7.2.9-1 / -2 | Cheaper, better-informed sched_ext scheduling | Default: 1–2 plus identity patch 5. Patch 3 requires explicit selection (warning fix not yet booted); 4 boots, unmeasured |
 | Scheduler | [scx_cake companion](scheduler/scx-cake/8fc5ec9/) | Public scx commit `8fc5ec9b` | Consumer and comparison flags for kernel patches 1 and 3 | Source snapshot included; patch 4's consumer is not included |
 | Compositor | [kwin](compositor/kwin/) | KWin 6.7.5 | Compositor wakes later and more precisely | 21 patches, installer, opt-in, capture and rollback tools included; input-to-photon gain not shown |
 | Audio | [goxlr-utility](audio/goxlr-utility/v1.2.4/) | v1.2.4 | No buffer allocation per sampler read | Builds; not live-tested |

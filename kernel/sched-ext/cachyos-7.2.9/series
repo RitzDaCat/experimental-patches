@@ -2,6 +2,6 @@
 0001-bpf-native-scalar-bitops.patch
 0002-sched-ext-dsq-direct-index.patch
 0005-identify-experimental-build.patch
-# Wake signals are excluded because of the known boot warning.
+# Wake signals are excluded until the boot-warning fix has booted.
 # Explicit research selection: --series series.wake-signals
-# Lean idle is not included in any series: never booted, no bundled consumer.
+# Lean idle is not included in any series: unmeasured, no bundled consumer.

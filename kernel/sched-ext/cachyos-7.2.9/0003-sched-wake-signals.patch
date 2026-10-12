@@ -367,7 +367,7 @@ index 0000000..0ddcd65
 +
 +#endif
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index 93071cf..f188269 100644
+index 93071cf..114e92d 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -39,6 +39,7 @@
@@ -401,6 +401,15 @@ index 93071cf..f188269 100644
  int wake_up_state(struct task_struct *p, unsigned int state)
  {
  	return try_to_wake_up(p, state, 0);
+@@ -7607,7 +7617,7 @@ asmlinkage __visible void __sched preempt_schedule_irq(void)
+ int default_wake_function(wait_queue_entry_t *curr, unsigned mode, int wake_flags,
+ 			  void *key)
+ {
+-	WARN_ON_ONCE(wake_flags & ~(WF_SYNC|WF_CURRENT_CPU));
++	WARN_ON_ONCE(wake_flags & ~(WF_SYNC|WF_CURRENT_CPU|WF_SCX_SIGNAL_MASK));
+ 	return try_to_wake_up(curr->private, mode, wake_flags);
+ }
+ EXPORT_SYMBOL(default_wake_function);
 diff --git a/kernel/sched/ext/ext.c b/kernel/sched/ext/ext.c
 index 56fa09d..09ed4dd 100644
 --- a/kernel/sched/ext/ext.c
