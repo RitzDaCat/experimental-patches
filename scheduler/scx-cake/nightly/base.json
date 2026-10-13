@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/RitzDaCat/scx",
+  "commit": "fe076988f7fc1fdc0f42ea1278f89bed62b64a01",
+  "branch": "RitzDaCat/scx_cake-nightly",
+  "scope": "SHA-256 of the pristine files touched by the included patches, not the entire source tree"
+}

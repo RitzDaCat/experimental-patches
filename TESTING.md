@@ -20,7 +20,7 @@ for the stock version. Check it after every install, update and reboot:
 
 | Patch set | Check | Patched build | Stock build |
 | --- | --- | --- | --- |
-| Kernel | `uname -r` | `7.2.9-1-cachyos-exp` | `7.2.9-1-cachyos` |
+| Kernel | `uname -r` | `7.2.10-1-cachyos-exp` | `7.2.10-1-cachyos` |
 | scx_cake | `scx_cake --version`, `cat /sys/kernel/sched_ext/root/ops` | `scx_cake 1.2.1-exp…`, `cake_1.2.1_exp…` | no `exp` |
 | KWin | `pacman -Qi kwin`, `./bin/kwin-latencyctl status` | Description `KWin 6.7.5 latency experiment revision 25` | Description `An easy to use, but flexible, Wayland compositor` |
 | GoXLR Utility | `goxlr-daemon --version`, daemon log | `goxlr-daemon 1.2.4-exp` | `goxlr-daemon 1.2.4` |
@@ -29,7 +29,7 @@ for the stock version. Check it after every install, update and reboot:
 KWin keeps the stock pacman version on purpose, so the next distribution
 update replaces it normally; its description and `status` name the experiment.
 The KWin gate must match the kernel you boot. When testing the kernel patches
-too, build KWin for that kernel: `./install.sh --kernel 7.2.9-1-cachyos-exp`.
+too, build KWin for that kernel: `./install.sh --kernel 7.2.10-1-cachyos-exp`.
 
 ## Testing fairly
 

@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 11:16:04 -0500
+Subject: [PATCH] scx_cake: tag experimental-patches builds with -exp
+
+Set the package version to 1.2.1-exp so a build from this collection
+names itself experimental everywhere the version appears: the startup
+banner and --version (scx_cake 1.2.1-exp...), and the sched_ext ops
+name in /sys/kernel/sched_ext/root/ops (cake_1.2.1_exp...).
+Cargo.lock carries the same version so --locked builds still work.
+---
+ Cargo.lock                      | 2 +-
+ scheds/rust/scx_cake/Cargo.toml | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 4f7c74b92..96c43baaa 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -5886,7 +5886,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "scx_cake"
+-version = "1.2.1"
++version = "1.2.1-exp"
+ dependencies = [
+  "anyhow",
+  "clap",
+diff --git a/scheds/rust/scx_cake/Cargo.toml b/scheds/rust/scx_cake/Cargo.toml
+index 461de60f3..224918161 100644
+--- a/scheds/rust/scx_cake/Cargo.toml
++++ b/scheds/rust/scx_cake/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "scx_cake"
+-version = "1.2.1"
++version = "1.2.1-exp"
+ authors = ["RitzDaCat"]
+ edition = "2024"
+ rust-version = "1.91"
+-- 
+2.56.0
+

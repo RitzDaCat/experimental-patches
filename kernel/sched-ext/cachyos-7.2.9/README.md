@@ -28,7 +28,7 @@ The patches stack: each assumes the ones before it.
 | Consumer | Patches |
 |---|---|
 | any sched_ext scheduler | 2 (kernel side only) |
-| scx_cake `scx_cake-nightly` + [identity patch](../../../scheduler/scx-cake/fe07698/) | 1, 3, 4 (`--lean-idle`, default `lazy`) · each detected at start, stock fallback when absent |
+| scx_cake `scx_cake-nightly` + [identity patch](../../../scheduler/scx-cake/nightly/) | 1, 3, 4 (`--lean-idle`, default `lazy`) · each detected at start, stock fallback when absent |
 
 ---
 
@@ -102,7 +102,7 @@ Remove the temporary combined patch after importing it.
 </details>
 
 **After boot** ✅ `uname -r` ends in `-exp` · ✅ own package name, stock kernel kept in the boot
-menu · ✅ build the [scx_cake nightly + identity patch](../../../scheduler/scx-cake/fe07698/) for native bitops,
+menu · ✅ build the [scx_cake nightly + identity patch](../../../scheduler/scx-cake/nightly/) for native bitops,
 lean idle or wake signals · see [TESTING.md](../../../TESTING.md).
 
 ---
