@@ -129,6 +129,10 @@ def main():
         text = path.read_text()
         if ("https://" + "github.com/RitzDaCat/linux-interactive-latency") in text or ("/code/" + "session_") in text:
             errors.append(f"{path.relative_to(ROOT)}: private development/session link")
+    stale = subprocess.run([sys.executable, str(ROOT / "scripts/index.py"), "--check"],
+                           capture_output=True, text=True)
+    if stale.returncode:
+        errors.append("index.json is stale: run scripts/index.py")
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

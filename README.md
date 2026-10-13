@@ -55,9 +55,9 @@ yet**. Each patch set states its evidence and limitations.
 <summary><b>📁 How each patch set is laid out</b></summary>
 
 ```
-<area>/<component>/<base version>/
+<area>/<component>/<base version or branch>/
     README.md    one section per patch
-    series       default apply order
+    series       default apply order (series.<name>: opt-in variants)
     base.json    exact public source identity
     base.sha256  pristine hashes of touched files
     0001-*.patch
@@ -73,6 +73,16 @@ revision instead) — see [Know what you are running](TESTING.md#know-what-you-a
 | **What it changes** · **Why** · **Expected result** · **How to test** | **Compatibility** · **Known issues** |
 
 Each README also has a **Tested on** table: version, machine, how far (applies → compiles → boots → daily use → measured).
+
+**For distributions and scripts** · read [`index.json`](index.json), not folder names. Each entry
+gives `component`, `version`, `path`, `current` (newest set of that component), `base` (repository
++ commit/tag, or archive + SHA-256) and `series` (patch lists in apply order). Apply with
+`scripts/apply.sh <path> <source> [--series series.<name>]`, which checks the pinned hashes first.
+`kernel/sched-ext/upstream/` and `research/` are not patch sets and are not listed.
+
+```bash
+jq -r '.sets[] | select(.component == "kernel/sched-ext" and .current) | .path' index.json
+```
 </details>
 
 ---

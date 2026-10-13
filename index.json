@@ -1,0 +1,137 @@
+{
+  "schema": 1,
+  "sets": [
+    {
+      "component": "audio/goxlr-utility",
+      "version": "v1.2.4",
+      "path": "audio/goxlr-utility/v1.2.4",
+      "current": true,
+      "base": {
+        "repository": "https://github.com/GoXLR-on-Linux/goxlr-utility",
+        "commit": "0c093b4c9bfb59d3426357c008760ad6620f97ae"
+      },
+      "series": {
+        "default": [
+          "0001-audio-reuse-input-read-buffers.patch",
+          "0002-identify-experimental-build.patch"
+        ]
+      }
+    },
+    {
+      "component": "compositor/kwin",
+      "version": "v6.7.5",
+      "path": "compositor/kwin/v6.7.5/patches",
+      "current": true,
+      "base": {
+        "archive": "https://download.kde.org/stable/plasma/6.7.5/kwin-6.7.5.tar.xz",
+        "archive_sha256": "6baa910b732d93c48c90f9c1cc685cc93d0b8de0cdf138c24192c045bc3a48e2"
+      },
+      "series": {
+        "default": [
+          "0001-precise-timer.patch",
+          "0002-renderloop-timerfd.patch",
+          "0003-wakeup-instrumentation.patch",
+          "0004-adaptive-wakeup-margin.patch",
+          "0005-kernel-release-gate.patch",
+          "0006-adaptive-margin-v2.patch",
+          "0007-backends-libinput-add-gated-input-queue-telemetry.patch",
+          "0008-telemetry-sample-observers-outside-nanosecond-hot-paths.patch",
+          "0009-adaptive-render-budget.patch",
+          "0010-vrr-cadence-repaint-coalescing.patch",
+          "0011-bounded-latency-capture.patch",
+          "0012-reason-coded-capture.patch",
+          "0013-exact-kernel-nvidia-color-pipeline.patch",
+          "0014-fix-inverse-srgb-linear-segment.patch",
+          "0015-bounded-color-hot-path-cache.patch",
+          "0016-compensate-mandatory-color-pipeline-curves.patch",
+          "0017-exact-frame-and-color-capture.patch",
+          "0018-guard-wake-sample-consumption.patch",
+          "0019-default-low-latency-policy.patch",
+          "0020-runtime-optin-latency-policy.patch",
+          "0021-selectable-mandatory-csc-pq-scale.patch"
+        ]
+      }
+    },
+    {
+      "component": "kernel/sched-ext",
+      "version": "cachyos-7.2.10",
+      "path": "kernel/sched-ext/cachyos-7.2.10",
+      "current": true,
+      "base": {
+        "repository": "https://github.com/CachyOS/linux",
+        "commit": "11636526a2d2d35ecec28570a6dd75d5e70003bc",
+        "tag": "cachyos-7.2.10-1"
+      },
+      "series": {
+        "default": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-dsq-direct-index.patch",
+          "0005-identify-experimental-build.patch"
+        ],
+        "wake-signals": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-dsq-direct-index.patch",
+          "0003-sched-wake-signals.patch",
+          "0005-identify-experimental-build.patch"
+        ]
+      }
+    },
+    {
+      "component": "kernel/sched-ext",
+      "version": "cachyos-7.2.9",
+      "path": "kernel/sched-ext/cachyos-7.2.9",
+      "current": false,
+      "base": {
+        "repository": "https://github.com/CachyOS/linux",
+        "commit": "65a94cb5c1587a19242fe5a219f03343671f372e",
+        "tag": "cachyos-7.2.9-1"
+      },
+      "series": {
+        "default": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-dsq-direct-index.patch",
+          "0005-identify-experimental-build.patch"
+        ],
+        "wake-signals": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-dsq-direct-index.patch",
+          "0003-sched-wake-signals.patch",
+          "0005-identify-experimental-build.patch"
+        ]
+      }
+    },
+    {
+      "component": "scheduler/scx-cake",
+      "version": "nightly",
+      "path": "scheduler/scx-cake/nightly",
+      "current": true,
+      "base": {
+        "repository": "https://github.com/RitzDaCat/scx",
+        "commit": "fe076988f7fc1fdc0f42ea1278f89bed62b64a01",
+        "branch": "RitzDaCat/scx_cake-nightly"
+      },
+      "series": {
+        "default": [
+          "0001-identify-experimental-build.patch"
+        ]
+      }
+    },
+    {
+      "component": "tools/mangohud",
+      "version": "v0.8.4",
+      "path": "tools/mangohud/v0.8.4",
+      "current": true,
+      "base": {
+        "repository": "https://github.com/flightlessmango/MangoHud",
+        "commit": "992103e4fb744897826de04ea00a2f71e7018214"
+      },
+      "series": {
+        "default": [
+          "0001-os_socket-set-CLOEXEC-and-stop-leaking-fds.patch",
+          "0002-control-share-one-listening-socket-across-Vulkan-ins.patch",
+          "0003-identify-experimental-build.patch"
+        ]
+      }
+    }
+  ]
+}
