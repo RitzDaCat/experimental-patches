@@ -1,5 +1,7 @@
 # sched_ext kernel patches — CachyOS 7.2.9
 
+> Newer kernel: [CachyOS 7.2.10](../cachyos-7.2.10/).
+
 Four kernel changes that make sched_ext schedulers cheaper to run or better informed, plus an
 identity patch that tags the build `-exp`. Written for
 [scx_cake](https://github.com/sched-ext/scx/tree/main/scheds/rust/scx_cake), but nothing is
@@ -26,8 +28,7 @@ The patches stack: each assumes the ones before it.
 | Consumer | Patches |
 |---|---|
 | any sched_ext scheduler | 2 (kernel side only) |
-| bundled [scx_cake companion](../../../scheduler/scx-cake/8fc5ec9/) | 1, 3 |
-| scx_cake `scx_cake-nightly` branch of github.com/RitzDaCat/scx (not bundled) | 1, 3, 4 (`--lean-idle`, default `lazy`) |
+| scx_cake `scx_cake-nightly` + [identity patch](../../../scheduler/scx-cake/fe07698/) | 1, 3, 4 (`--lean-idle`, default `lazy`) · each detected at start, stock fallback when absent |
 
 ---
 
@@ -101,8 +102,8 @@ Remove the temporary combined patch after importing it.
 </details>
 
 **After boot** ✅ `uname -r` ends in `-exp` · ✅ own package name, stock kernel kept in the boot
-menu · ✅ build the [scheduler companion](../../../scheduler/scx-cake/8fc5ec9/) for native bitops
-or wake signals · see [TESTING.md](../../../TESTING.md).
+menu · ✅ build the [scx_cake nightly + identity patch](../../../scheduler/scx-cake/fe07698/) for native bitops,
+lean idle or wake signals · see [TESTING.md](../../../TESTING.md).
 
 ---
 

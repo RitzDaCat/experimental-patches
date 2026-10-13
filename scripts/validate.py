@@ -81,11 +81,12 @@ def main():
             if directory != KWIN / "patches" and names and not names[-1].endswith(IDENTITY):
                 errors.append(f"{series.relative_to(ROOT)}: must end with the {IDENTITY}")
 
-    kernel = ROOT / "kernel/sched-ext/cachyos-7.2.9"
-    default = [line for line in (kernel / "series").read_text().splitlines()
-               if line and not line.startswith("#")]
-    if {"0003-sched-wake-signals.patch", "0004-sched-ext-lean-idle-claim.patch"} & set(default):
-        errors.append("known-warning/unbooted kernel work must remain outside the default series")
+    for kernel in sorted((ROOT / "kernel/sched-ext").glob("cachyos-*")):
+        default = [line for line in (kernel / "series").read_text().splitlines()
+                   if line and not line.startswith("#")]
+        if {"0003-sched-wake-signals.patch", "0004-sched-ext-lean-idle-claim.patch"} & set(default):
+            errors.append(f"{kernel.relative_to(ROOT)}: known-warning/unbooted kernel work "
+                          "must remain outside the default series")
 
     bundle = KWIN
     recipe = subprocess.run(
