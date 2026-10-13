@@ -1,6 +1,0 @@
-# Research only: the boot-warning fix (README.md) has not booted yet.
-# Do not use with panic_on_warn=1. Requires the bundled scheduler companion.
-0001-bpf-native-scalar-bitops.patch
-0002-sched-ext-dsq-direct-index.patch
-0003-sched-wake-signals.patch
-0005-identify-experimental-build.patch

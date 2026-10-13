@@ -1,7 +1,7 @@
-Subject: [PATCH 3/4] sched: tag input and GPU-fence wakeups, expose IRQ time to sched_ext
+Subject: [PATCH 4/4] sched: tag input and GPU-fence wakeups, expose IRQ time to sched_ext
 
-Base:   CachyOS release tarball cachyos-7.2.10-1 (Makefile 7.2.10).
-Order:  patch 3 of 4. Each patch assumes the ones before it.
+Base:   CachyOS release tarball cachyos-7.2.9-1 (Makefile 7.2.9).
+Order:  patch 4 of 4. Each patch assumes the ones before it.
 About:  why it exists and what to expect: README.md next to this file.
 
 Files:
@@ -17,7 +17,7 @@ Files:
   drivers/dma-buf/sync_file.c,
   drivers/gpu/drm/drm_syncobj.c
   include/linux/sched/ext.h          per-task token p->scx.wake_signal
-  kernel/sched/ext/ext.c, ext.h,     SCX_OPS_WAKE_SIGNAL (bit 9) opt-in, token
+  kernel/sched/ext/ext.c, ext.h,     SCX_OPS_WAKE_SIGNAL (bit 11) opt-in, token
   internal.h                         cleared at running, kfuncs
                                      scx_bpf_task_wake_signal_v1() and
                                      scx_bpf_cpu_irq_ns_v1()
@@ -411,7 +411,7 @@ index 93071cf1e..114e92d92 100644
  }
  EXPORT_SYMBOL(default_wake_function);
 diff --git a/kernel/sched/ext/ext.c b/kernel/sched/ext/ext.c
-index 91036f35d..f51edbdf3 100644
+index 56fa09dff..09ed4dd5a 100644
 --- a/kernel/sched/ext/ext.c
 +++ b/kernel/sched/ext/ext.c
 @@ -12,6 +12,7 @@
@@ -439,7 +439,7 @@ index 91036f35d..f51edbdf3 100644
  DEFINE_STATIC_PERCPU_RWSEM(scx_fork_rwsem);
  static atomic_t scx_enable_state_var = ATOMIC_INIT(SCX_DISABLED);
  static DEFINE_RAW_SPINLOCK(scx_bypass_lock);
-@@ -3050,6 +3061,8 @@ static void set_next_task_scx(struct rq *rq, struct task_struct *p, bool first)
+@@ -3046,6 +3057,8 @@ static void set_next_task_scx(struct rq *rq, struct task_struct *p, bool first)
  	/* see dequeue_task_scx() on why we skip when !QUEUED */
  	if (SCX_HAS_OP(sch, running) && (p->scx.flags & SCX_TASK_QUEUED))
  		SCX_CALL_OP_TASK(sch, running, rq, p);
@@ -448,7 +448,7 @@ index 91036f35d..f51edbdf3 100644
  
  	clr_task_runnable(p, true);
  
-@@ -3756,6 +3769,7 @@ static int __scx_init_task(struct scx_sched *sch, struct task_struct *p, bool fo
+@@ -3752,6 +3765,7 @@ static int __scx_init_task(struct scx_sched *sch, struct task_struct *p, bool fo
  	int ret;
  
  	p->scx.disallow = false;
@@ -456,7 +456,7 @@ index 91036f35d..f51edbdf3 100644
  
  	if (SCX_HAS_OP(sch, init_task)) {
  		struct scx_init_task_args args = {
-@@ -6389,6 +6403,7 @@ static void scx_root_disable(struct scx_sched *sch)
+@@ -6374,6 +6388,7 @@ static void scx_root_disable(struct scx_sched *sch)
  
  	/* no task is on scx, turn off all the switches and flush in-progress calls */
  	static_branch_disable(&__scx_enabled);
@@ -464,7 +464,7 @@ index 91036f35d..f51edbdf3 100644
  	static_branch_disable(&__scx_is_cid_type);
  	if (sch->ops.flags & SCX_OPS_TID_TO_TASK)
  		static_branch_disable(&__scx_tid_to_task_enabled);
-@@ -7277,6 +7292,12 @@ static int validate_ops(struct scx_sched *sch, const struct sched_ext_ops *ops)
+@@ -7255,6 +7270,12 @@ static int validate_ops(struct scx_sched *sch, const struct sched_ext_ops *ops)
  	 * may set it to declare a dependency; reject if the root hasn't
  	 * enabled it.
  	 */
@@ -477,7 +477,7 @@ index 91036f35d..f51edbdf3 100644
  	if ((ops->flags & SCX_OPS_TID_TO_TASK) && scx_parent(sch) &&
  	    !(scx_root->ops.flags & SCX_OPS_TID_TO_TASK)) {
  		scx_error(sch, "SCX_OPS_TID_TO_TASK requires root scheduler to enable it");
-@@ -7605,6 +7626,8 @@ static void scx_root_enable_workfn(struct kthread_work *work)
+@@ -7583,6 +7604,8 @@ static void scx_root_enable_workfn(struct kthread_work *work)
  	 */
  	WRITE_ONCE(scx_switching_all, !(ops->flags & SCX_OPS_SWITCH_PARTIAL));
  	static_branch_enable(&__scx_enabled);
@@ -486,7 +486,7 @@ index 91036f35d..f51edbdf3 100644
  
  	/*
  	 * We're fully committed and can't fail. The task READY -> ENABLED
-@@ -10450,6 +10473,49 @@ __bpf_kfunc s32 scx_bpf_task_cid(const struct task_struct *p)
+@@ -10429,6 +10452,49 @@ __bpf_kfunc s32 scx_bpf_task_cid(const struct task_struct *p)
  	return tbl[task_cpu(p)];
  }
  
@@ -536,7 +536,7 @@ index 91036f35d..f51edbdf3 100644
  /**
   * scx_bpf_cpu_rq - Fetch the rq of a CPU
   * @cpu: CPU of the rq
-@@ -10736,6 +10802,8 @@ __bpf_kfunc struct cgroup *scx_bpf_task_cgroup(struct task_struct *p,
+@@ -10715,6 +10781,8 @@ __bpf_kfunc struct cgroup *scx_bpf_task_cgroup(struct task_struct *p,
  __bpf_kfunc_end_defs();
  
  BTF_KFUNCS_START(scx_kfunc_ids_any)
@@ -575,25 +575,25 @@ index 0b7fc46ae..727c207ab 100644
  static inline void scx_pre_fork(struct task_struct *p) {}
  static inline int scx_fork(struct task_struct *p, struct kernel_clone_args *kargs) { return 0; }
 diff --git a/kernel/sched/ext/internal.h b/kernel/sched/ext/internal.h
-index 8e2e5c125..b40e30c33 100644
+index 72940ca8c..2d22e9a21 100644
 --- a/kernel/sched/ext/internal.h
 +++ b/kernel/sched/ext/internal.h
-@@ -184,6 +184,9 @@ enum scx_ops_flags {
+@@ -199,6 +199,9 @@ enum scx_ops_flags {
  	 */
- 	SCX_OPS_TID_TO_TASK		= 1LLU << 8,
+ 	SCX_OPS_LEAN_IDLE_LAZY_SMT	= 1LLU << 10,
  
 +	/* Root opts in to typed blocked-task wake metadata. */
-+	SCX_OPS_WAKE_SIGNAL		= 1LLU << 9,
++	SCX_OPS_WAKE_SIGNAL		= 1LLU << 11,
 +
  	SCX_OPS_ALL_FLAGS		= SCX_OPS_KEEP_BUILTIN_IDLE |
  					  SCX_OPS_ENQ_LAST |
  					  SCX_OPS_ENQ_EXITING |
-@@ -192,7 +195,8 @@ enum scx_ops_flags {
- 					  SCX_OPS_SWITCH_PARTIAL |
- 					  SCX_OPS_BUILTIN_IDLE_PER_NODE |
+@@ -209,7 +212,8 @@ enum scx_ops_flags {
  					  SCX_OPS_ALWAYS_ENQ_IMMED |
--					  SCX_OPS_TID_TO_TASK,
-+					  SCX_OPS_TID_TO_TASK |
+ 					  SCX_OPS_TID_TO_TASK |
+ 					  SCX_OPS_LEAN_IDLE |
+-					  SCX_OPS_LEAN_IDLE_LAZY_SMT,
++					  SCX_OPS_LEAN_IDLE_LAZY_SMT |
 +					  SCX_OPS_WAKE_SIGNAL,
  
  	/* high 8 bits are internal, don't include in SCX_OPS_ALL_FLAGS */

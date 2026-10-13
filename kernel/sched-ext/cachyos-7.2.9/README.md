@@ -10,25 +10,45 @@ included here, split by feature; no private repository is needed.
 
 **Legend** · 🟢 measured · 🔵 daily use · 🟡 boots · ⚪ applies / compiles · ⚠️ known issue
 
-| # | Patch | In short | Status | Series |
-|---|---|---|---|---|
-| 1 | [bpf-native-scalar-bitops](0001-bpf-native-scalar-bitops.patch) | bit-counting as one CPU instruction | 🟢 microbenchmarks · 🔵 · game benefit unproven | ✅ default |
-| 2 | [sched-ext-dsq-direct-index](0002-sched-ext-dsq-direct-index.patch) | dispatch queue by array index, not hash | 🔵 · speedup **not shown** | ✅ default |
-| 3 | [sched-wake-signals](0003-sched-wake-signals.patch) | tell the scheduler a wake came from input or a GPU fence | ⚠️ warning fix not yet booted · no effect on KWin + NVIDIA | opt-in `series.wake-signals` |
-| 4 | [sched-ext-lean-idle-claim](0004-sched-ext-lean-idle-claim.patch) | cheaper idle-CPU claim | 🟢 `lazy`: KovaaK's avg FPS +1.4 %, 1 % low +7.5 % | not in a series (apply by hand) |
-| 5 | [identify-experimental-build](0005-identify-experimental-build.patch) | `uname -r` ends in `-exp` | ⚪ | ✅ both series |
+### ✅ Proven on the maintainer's machine (9800X3D, RTX 4090)
+
+| # | Patch | In short | Evidence |
+|---|---|---|---|
+| 1 | [bpf-native-scalar-bitops](0001-bpf-native-scalar-bitops.patch) | bit-counting as one CPU instruction | 🟢 `running` −2.31 ns, `select_cpu` −0.2…−4.11 ns · 🔵 daily use · no frame change |
+| 2 | [sched-ext-lean-idle-claim](0002-sched-ext-lean-idle-claim.patch) | cheaper idle-CPU claim, warm-CPU wakes | 🟢 KovaaK's `lazy`: 1 % low +7.5 %, p99 −5.1 %, avg FPS +1.4 % · 🔵 daily use |
+
+### 🧪 Unproven (runs daily, no measured win yet)
+
+| # | Patch | In short | Evidence |
+|---|---|---|---|
+| 3 | [sched-ext-dsq-direct-index](0003-sched-ext-dsq-direct-index.patch) | dispatch queue by array index, not hash | 🔵 daily use · speedup **not shown** |
+| 4 | [sched-wake-signals](0004-sched-wake-signals.patch) | tell the scheduler a wake came from input or a GPU fence | 🔵 daily use · 0 wakes tagged on KWin + NVIDIA · ⚠️ warning fix not yet booted |
+| 5 | [identify-experimental-build](0005-identify-experimental-build.patch) | `uname -r` ends in `-exp` | ⚪ in every series |
+
+| Series | Patches | For |
+|---|---|---|
+| `series` (default) | 1–5 | the maintainer's running kernel: everything |
+| `series.proven` | 1, 2, 5 | measured wins only |
 
 ```mermaid
 flowchart LR
-    S1[1 bitops] --> S2[2 DSQ index] --> S3[3 wake signals<br/>opt-in] --> S4[4 lean idle<br/>by hand] --> S5[5 -exp identity]
+    subgraph proven [✅ proven]
+        S1[1 bitops] --> S2[2 lean idle]
+    end
+    subgraph unproven [🧪 unproven]
+        S3[3 DSQ index] --> S4[4 wake signals]
+    end
+    S2 --> S3
+    S4 --> S5[5 -exp identity]
+    S2 -. series.proven .-> S5
 ```
 
-The patches stack: each assumes the ones before it.
+The patches stack in this order: each assumes the ones before it.
 
 | Consumer | Patches |
 |---|---|
-| any sched_ext scheduler | 2 (kernel side only) |
-| scx_cake `scx_cake-nightly` + [identity patch](../../../scheduler/scx-cake/nightly/) | 1, 3, 4 (`--lean-idle`, default `lazy`) · each detected at start, stock fallback when absent |
+| any sched_ext scheduler | 3 (kernel side only) |
+| scx_cake `scx_cake-nightly` + [identity patch](../../../scheduler/scx-cake/nightly/) | 1, 2 (`--lean-idle`, default `lazy`), 4 · each detected at start, stock fallback when absent |
 
 ---
 
@@ -37,17 +57,17 @@ The patches stack: each assumes the ones before it.
 | | Works with | Notes |
 |---|---|---|
 | Kernel | CachyOS tags `cachyos-7.2.9-1`, `cachyos-7.2.9-2` ([CachyOS/linux](https://github.com/CachyOS/linux)) | `base.json` pins `-1`; all touched files match `-2` · hashes checked, no fuzzy matching · kernel.org 7.2.9 untested · **7.3 needs a port** |
-| CPU | any x86-64 (others untested) | patch 1's one-instruction path needs TZCNT, POPCNT, LZCNT (Haswell / Piledriver+), else ordinary calls · patch 4 needs ≤ 64 CPUs and the global idle mask, else its flags are ignored |
-| Config | `BPF`, `BPF_SYSCALL`, `BPF_JIT`, `DEBUG_INFO_BTF`, `SCHED_CLASS_EXT` | patch 3's IRQ time also needs `IRQ_TIME_ACCOUNTING` · CachyOS default config has all |
-| Flag bits | patches 3, 4 add experimental `SCX_OPS` bits 9, 10, 11 | may collide with future upstream flags · resolve names via the running kernel's BTF, never hard-code |
+| CPU | any x86-64 (others untested) | patch 1's one-instruction path needs TZCNT, POPCNT, LZCNT (Haswell / Piledriver+), else ordinary calls · patch 2 needs ≤ 64 CPUs and the global idle mask, else its flags are ignored |
+| Config | `BPF`, `BPF_SYSCALL`, `BPF_JIT`, `DEBUG_INFO_BTF`, `SCHED_CLASS_EXT` | patch 4's IRQ time also needs `IRQ_TIME_ACCOUNTING` · CachyOS default config has all |
+| Flag bits | patch 2 adds experimental `SCX_OPS` bits 9, 10; patch 4 adds bit 11 | may collide with future upstream flags · resolve names via the running kernel's BTF, never hard-code |
 
 ---
 
 ## ⚠️ Known issues
 
 > [!WARNING]
-> **Patch 3 logged one kernel warning per boot** — fixed in patch 3 since 2026-10-12, fix not
-> yet booted. Builds from an older patch 3 still warn. **Do not use `panic_on_warn=1`** with patch 3.
+> **Patch 4 logged one kernel warning per boot** — fixed in patch 4 since 2026-10-12, fix not
+> yet booted. Builds from an older version still warn. **Do not use `panic_on_warn=1`** with patch 4.
 
 ```
 WARNING: kernel/sched/core.c:7620 at default_wake_function+0x1a/0x30
@@ -75,13 +95,13 @@ Clean public source from [CachyOS/linux](https://github.com/CachyOS/linux):
 Use your distribution's matching config and packaging. From this collection's root:
 
 ```bash
-# default: patches 1–2 + 5
+# default: everything the maintainer runs (1–5)
 scripts/apply.sh kernel/sched-ext/cachyos-7.2.9 /path/to/linux-7.2.9 --check
 scripts/apply.sh kernel/sched-ext/cachyos-7.2.9 /path/to/linux-7.2.9
 
-# wake-signal research build (fresh source; read Known issues; no panic_on_warn=1)
-scripts/apply.sh kernel/sched-ext/cachyos-7.2.9 /path/to/linux-7.2.9 --series series.wake-signals --check
-scripts/apply.sh kernel/sched-ext/cachyos-7.2.9 /path/to/linux-7.2.9 --series series.wake-signals
+# proven wins only (1, 2, 5)
+scripts/apply.sh kernel/sched-ext/cachyos-7.2.9 /path/to/linux-7.2.9 --series series.proven --check
+scripts/apply.sh kernel/sched-ext/cachyos-7.2.9 /path/to/linux-7.2.9 --series series.proven
 ```
 
 The helper checks pinned hashes and preflights copies of touched files in `/tmp` (removed on
@@ -116,33 +136,7 @@ lean idle or wake signals · see [TESTING.md](../../../TESTING.md).
 | **Expected** | 🟢 microbenchmarks: `ops.running` −2.31 ns, `select_cpu` −4.11 / −0.2 ns · fastcall and 0–64 bounds ➖ no effect · CLZ, MULHI unused by scx_cake now · 🎮 KovaaK's (2 rounds): no frame difference |
 | **Test** | scx_cake picks native automatically; `--portable-bitops` forces the old path on the same boot |
 
-## 2️⃣ Direct DSQ index
-
-| | |
-|---|---|
-| **Changes** | a 2048-entry array per scheduler (16 KiB): DSQ IDs < 2048 found by one indexed read · larger IDs keep the hash, with a cheaper typed compare (backport, upstream from 7.4; adapted from [Usama Arif's patch](https://lore.kernel.org/all/20260921171928.1639407-1-usama.arif@linux.dev/)) · the direct index and its lifecycle are the local experiment |
-| **Why** | every queue op hashes and compares a usually small ID · all scx_cake IDs are < 2048 |
-| **Expected** | a few ns per queue op · **not shown**: VM passed, timing inconclusive, no hardware comparison yet |
-| **Test** | two boots, one with `sched_ext.dsq_direct=0` · `cat /sys/kernel/sched_ext/root/dsq_direct_entries` while a scheduler runs: 2048 = on, 0 = off |
-
-## 3️⃣ Wake signals
-
-```mermaid
-flowchart LR
-    I[evdev input] --> T((wake-cause<br/>bits))
-    F[dma-fence · sync_file · syncobj] --> T
-    T -->|epoll · eventfd · wait queues| K[task wakes]
-    K --> S["kfuncs: wake cause + per-CPU IRQ time<br/>(scheduler opts in: SCX_OPS_WAKE_SIGNAL)"]
-```
-
-| | |
-|---|---|
-| **Changes** | records whether a wake came from input or a GPU fence, carried through epoll, eventfd and wait queues · two kfuncs read the cause and each CPU's recent IRQ time · causes recorded only for an opted-in scheduler, but the bits travel the wake paths on every boot |
-| **Why** | a wake from a mouse move or finished frame is urgent; a timer wake usually is not → send urgent wakes straight to a free CPU, avoid IRQ-busy CPUs |
-| **Expected** | KWin + NVIDIA: **0 of 8.4M wakes tagged** in 90 s (input via KWin's Wayland socket, NVIDIA's own waits) → no benefit there · AMD / Intel on Mesa: open question |
-| **Test** | `scx_cake --kernel-signals observe --signal-report report.csv` counts without changing placement · a report with tagged wakes > 0 (AMD / Intel) is the most useful result now |
-
-## 4️⃣ Lean idle claim
+## 2️⃣ Lean idle claim
 
 | Part | Change |
 |---|---|
@@ -158,7 +152,33 @@ Opt-in (`SCX_OPS_LEAN_IDLE`), ≤ 64 CPUs.
 | **Why** | claiming an idle CPU is ~60 % of scx_cake's `select_cpu`; two far-apart masks dirty two shared lines per claim |
 | **Measured** | 🟢 KovaaK's menu, quiet, `lazy` vs `off`: avg FPS **+1.4 %**, p99 **−5.1 %**, 1 % low **+7.5 %** (16/16 pairs) · 16 CPU hogs: 0.1 % low +6.6 %, worst frame −16 %, nothing worse · `on` ≈ `off` |
 | **Why lazy** | K1/K2 cut `select_cpu` 82 → 68 ns; K3 keeps a just-claimed core "whole idle" until it runs, so ~6 points more wakes return to their cache-warm CPU · both halves are needed |
-| **Test** | apply by hand after 1–3 in a disposable tree · scx_cake nightly: `--lean-idle off` / `on` / `lazy` on one boot (`lazy` is its default) · the bundled companion cannot do this |
+| **Test** | in both series · scx_cake nightly: `--lean-idle off` / `on` / `lazy` on one boot (`lazy` is its default) |
+
+## 3️⃣ Direct DSQ index
+
+| | |
+|---|---|
+| **Changes** | a 2048-entry array per scheduler (16 KiB): DSQ IDs < 2048 found by one indexed read · larger IDs keep the hash, with a cheaper typed compare (backport, upstream from 7.4; adapted from [Usama Arif's patch](https://lore.kernel.org/all/20260921171928.1639407-1-usama.arif@linux.dev/)) · the direct index and its lifecycle are the local experiment |
+| **Why** | every queue op hashes and compares a usually small ID · all scx_cake IDs are < 2048 |
+| **Expected** | a few ns per queue op · **not shown**: VM passed, timing inconclusive, no hardware comparison yet |
+| **Test** | two boots, one with `sched_ext.dsq_direct=0` · `cat /sys/kernel/sched_ext/root/dsq_direct_entries` while a scheduler runs: 2048 = on, 0 = off |
+
+## 4️⃣ Wake signals
+
+```mermaid
+flowchart LR
+    I[evdev input] --> T((wake-cause<br/>bits))
+    F[dma-fence · sync_file · syncobj] --> T
+    T -->|epoll · eventfd · wait queues| K[task wakes]
+    K --> S["kfuncs: wake cause + per-CPU IRQ time<br/>(scheduler opts in: SCX_OPS_WAKE_SIGNAL)"]
+```
+
+| | |
+|---|---|
+| **Changes** | records whether a wake came from input or a GPU fence, carried through epoll, eventfd and wait queues · two kfuncs read the cause and each CPU's recent IRQ time · causes recorded only for an opted-in scheduler, but the bits travel the wake paths on every boot |
+| **Why** | a wake from a mouse move or finished frame is urgent; a timer wake usually is not → send urgent wakes straight to a free CPU, avoid IRQ-busy CPUs |
+| **Expected** | KWin + NVIDIA: **0 of 8.4M wakes tagged** in 90 s (input via KWin's Wayland socket, NVIDIA's own waits) → no benefit there · AMD / Intel on Mesa: open question |
+| **Test** | `scx_cake --kernel-signals observe --signal-report report.csv` counts without changing placement · a report with tagged wakes > 0 (AMD / Intel) is the most useful result now |
 
 ## 5️⃣ Experimental build identity
 
@@ -177,6 +197,7 @@ Newest first · tester results get a row too.
 
 | Date | Kernel | Patches | How far | Machine | Result |
 |---|---|---|---|---|---|
+| 2026-10-13 | CachyOS 7.2.9-1 source | 1–5 | ⚪ compiles | — | reordered proven-first; same code, only `SCX_OPS` bits move (lean idle 9, 10; wake signals 11; scx_cake reads them by name) · `series` and `series.proven` apply · touched objects compile (clang, `LLVM=1`, ThinLTO), 0 warnings · not booted |
 | 2026-10-12 | `7.2.9-2-cachyos-custom` | 1–4 | 🟢 patch 1, game | 9800X3D, RTX 4090, KWin | KovaaK's, native vs `--portable-bitops`, 6×20 s runs in both slot orders + one loaded: no frame difference (round 1 favoured portable's tails; round 2 did not replicate, loaded pooled 17–21/36 pairs) · callback cost equal (±1–2 ns); JIT inlines |
 | 2026-10-12 | `7.2.9-2-cachyos-custom` | 1–4 | 🟢 patch 4, loaded | 9800X3D, RTX 4090, KWin | 16 nice-10 hogs (98 % busy), `lazy` vs `off`: p99.9 −2.4 %, 0.1 % low +6.6 %, worst frame −16 %, nothing worse · scx_cake defaults to `lazy` |
 | 2026-10-12 | `7.2.9-2-cachyos-custom` | 1–4 | 🟢 patch 4 | 9800X3D, RTX 4090, KWin | KovaaK's 12×30 s ABBA: `lazy` vs `off` avg FPS +1.4 %, p99 −5.1 %, 1 % low +7.5 % (16/16) · `on` ≈ `off` · one scene, quiet host |
@@ -193,3 +214,5 @@ Newest first · tester results get a row too.
 
 The 7.2.9 daily-use kernel was built from the 7.2.8 version of patches 1–3 (applied with
 offsets); the code equals patches 1–3 here.
+
+Rows before 2026-10-13 use the old numbering: old 2 = DSQ index (now 3), old 3 = wake signals (now 4), old 4 = lean idle (now 2).

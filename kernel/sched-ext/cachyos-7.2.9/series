@@ -1,7 +1,6 @@
-# Apply in order. Lines starting with # are skipped.
+# Everything the maintainer runs: proven 1-2, unproven 3-4, identity 5.
 0001-bpf-native-scalar-bitops.patch
-0002-sched-ext-dsq-direct-index.patch
+0002-sched-ext-lean-idle-claim.patch
+0003-sched-ext-dsq-direct-index.patch
+0004-sched-wake-signals.patch
 0005-identify-experimental-build.patch
-# Wake signals are excluded until the boot-warning fix has booted.
-# Explicit research selection: --series series.wake-signals
-# Lean idle is not included in any series: apply by hand; its consumer is the scx_cake nightly, not bundled.

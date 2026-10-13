@@ -1,7 +1,7 @@
-Subject: [PATCH 2/4] sched_ext: direct index for DSQ lookup
+Subject: [PATCH 3/4] sched_ext: direct index for DSQ lookup
 
-Base:   CachyOS release tarball cachyos-7.2.10-1 (Makefile 7.2.10).
-Order:  patch 2 of 4. Each patch assumes the ones before it.
+Base:   CachyOS release tarball cachyos-7.2.9-1 (Makefile 7.2.9).
+Order:  patch 3 of 4. Each patch assumes the ones before it.
 About:  why it exists and what to expect: README.md next to this file.
 
 Upstream attribution: the typed dsq_cmpfn comparison is adapted from
@@ -22,7 +22,7 @@ Files:
   Cake uses it automatically (all its DSQ IDs are below 2048).
 
 diff --git a/kernel/sched/ext/ext.c b/kernel/sched/ext/ext.c
-index 54a53cd85..91036f35d 100644
+index 0e80d107e..56fa09dff 100644
 --- a/kernel/sched/ext/ext.c
 +++ b/kernel/sched/ext/ext.c
 @@ -8,6 +8,7 @@
@@ -102,7 +102,7 @@ index 54a53cd85..91036f35d 100644
  static const struct sched_class *scx_setscheduler_class(struct task_struct *p)
  {
  	if (p->sched_class == &stop_sched_class)
-@@ -4916,9 +4946,14 @@ static void destroy_dsq(struct scx_sched *sch, u64 dsq_id)
+@@ -4902,9 +4932,14 @@ static void destroy_dsq(struct scx_sched *sch, u64 dsq_id)
  		goto out_unlock_dsq;
  	}
  
@@ -120,7 +120,7 @@ index 54a53cd85..91036f35d 100644
  
  	/*
  	 * Mark dead by invalidating ->id to prevent dispatch_enqueue() from
-@@ -5167,6 +5202,7 @@ static void scx_sched_free_rcu_work(struct work_struct *work)
+@@ -5153,6 +5188,7 @@ static void scx_sched_free_rcu_work(struct work_struct *work)
  	rhashtable_walk_exit(&rht_iter);
  
  	rhashtable_free_and_destroy(&sch->dsq_hash, NULL, NULL);
@@ -128,7 +128,7 @@ index 54a53cd85..91036f35d 100644
  	free_exit_info(sch->exit_info);
  	scx_set_cmask_scratch_free(sch);
  	scx_arena_pool_destroy(sch);
-@@ -5192,6 +5228,15 @@ static ssize_t scx_attr_ops_show(struct kobject *kobj,
+@@ -5178,6 +5214,15 @@ static ssize_t scx_attr_ops_show(struct kobject *kobj,
  }
  SCX_ATTR(ops);
  
@@ -144,7 +144,7 @@ index 54a53cd85..91036f35d 100644
  #define scx_attr_event_show(buf, at, events, kind) ({				\
  	sysfs_emit_at(buf, at, "%s %llu\n", #kind, (events)->kind);		\
  })
-@@ -5223,6 +5268,7 @@ SCX_ATTR(events);
+@@ -5209,6 +5254,7 @@ SCX_ATTR(events);
  
  static struct attribute *scx_sched_attrs[] = {
  	&scx_attr_ops.attr,
@@ -152,7 +152,7 @@ index 54a53cd85..91036f35d 100644
  	&scx_attr_events.attr,
  	NULL,
  };
-@@ -6988,6 +7034,11 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
+@@ -6966,6 +7012,11 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
  	if (ret < 0)
  		goto err_free_ei;
  
@@ -164,7 +164,7 @@ index 54a53cd85..91036f35d 100644
  	sch->pnode = kzalloc_objs(sch->pnode[0], nr_node_ids);
  	if (!sch->pnode) {
  		ret = -ENOMEM;
-@@ -7174,6 +7225,7 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
+@@ -7152,6 +7203,7 @@ static struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
  	kfree(sch->pnode);
  err_free_hash:
  	rhashtable_free_and_destroy(&sch->dsq_hash, NULL, NULL);
@@ -172,7 +172,7 @@ index 54a53cd85..91036f35d 100644
  err_free_ei:
  	free_exit_info(sch->exit_info);
  err_free_sch:
-@@ -9492,8 +9544,12 @@ __bpf_kfunc s32 scx_bpf_create_dsq(u64 dsq_id, s32 node, const struct bpf_prog_a
+@@ -9470,8 +9522,12 @@ __bpf_kfunc s32 scx_bpf_create_dsq(u64 dsq_id, s32 node, const struct bpf_prog_a
  	sch = scx_prog_sched(aux);
  	if (sch) {
  		dsq->sched = sch;
@@ -188,10 +188,10 @@ index 54a53cd85..91036f35d 100644
  		ret = -ENODEV;
  	}
 diff --git a/kernel/sched/ext/internal.h b/kernel/sched/ext/internal.h
-index b295991b9..8e2e5c125 100644
+index bd6829ce8..72940ca8c 100644
 --- a/kernel/sched/ext/internal.h
 +++ b/kernel/sched/ext/internal.h
-@@ -1150,6 +1150,8 @@ struct scx_sched {
+@@ -1167,6 +1167,8 @@ struct scx_sched {
  	 * per-node split isn't sufficient, it can be further split.
  	 */
  	struct rhashtable	dsq_hash;

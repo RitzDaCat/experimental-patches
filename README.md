@@ -42,9 +42,9 @@ yet**. Each patch set states its evidence and limitations.
 
 | Area | Patch set | Base | In short | Status |
 | --- | --- | --- | --- | --- |
-| 🐧 Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.10/) | CachyOS 7.2.10-1 (7.2.9 kept) | cheaper, better-informed sched_ext scheduling | default 1–2 + identity 5 · patch 3 opt-in (warning fix not yet booted) · patch 4 boots; `lazy` measured win in KovaaK's |
+| 🐧 Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.10/) | CachyOS 7.2.10-1 (7.2.9 kept) | cheaper, better-informed sched_ext scheduling | ✅ proven: 1 bitops, 2 lean idle (KovaaK's 1 % low +7.5 %) · 🧪 unproven: 3 DSQ index, 4 wake signals · `series` = all (maintainer's kernel), `series.proven` = 1, 2 |
 | 🐧 Kernel | [sched-ext upstream candidates](kernel/sched-ext/upstream/) | CachyOS 7.2.9-1 | the two measured wins (bitops kfuncs, lean idle), each standalone, for review | applies + compiles alone · not for testers: no identity patch |
-| 🍰 Scheduler | [scx_cake identity](scheduler/scx-cake/nightly/) | public scx `scx_cake-nightly` `fe076988` | nightly already uses kernel patches 1, 3, 4; falls back on a stock kernel | identity patch only · builds |
+| 🍰 Scheduler | [scx_cake identity](scheduler/scx-cake/nightly/) | public scx `scx_cake-nightly` `fe076988` | nightly already uses kernel patches 1, 2, 4; falls back on a stock kernel | identity patch only · builds |
 | 🪟 Compositor | [kwin](compositor/kwin/) | KWin 6.7.5 | compositor wakes later and more precisely | 21 patches + installer, opt-in, capture and rollback tools · input-to-photon gain not shown |
 | 🔊 Audio | [goxlr-utility](audio/goxlr-utility/v1.2.4/) | v1.2.4 | no buffer allocation per sampler read | builds · not live-tested |
 | 🛠️ Tools | [mangohud](tools/mangohud/v0.8.4/) | v0.8.4 | control socket fixes | daily use on the author's machine |
