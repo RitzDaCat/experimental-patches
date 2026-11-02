@@ -1,6 +1,6 @@
-# KWin 6.8 upstream status check and rebase assessment — 2026-10-07
+# KWin 6.8 upstream status check and rebase assessment: 2026-10-07
 
-Scope: patches/0001–0021 (revision 24, base 6.7.5-1.1) against upstream
+Scope: patches/0001-0021 (revision 24, base 6.7.5-1.1) against upstream
 `Plasma/6.8` at `5e1853d5f6` (2026-10-07, after `v6.7.91` = 6.8 Beta 2).
 Method: fetched upstream into the local clone, diffed every overlay file
 between `v6.7.5` and `Plasma/6.8`, read the commits that touch them, and
@@ -14,8 +14,8 @@ applied the series with `patch -Np1 -f` onto a `git archive` of the branch.
 | CachyOS repo | kwin 6.7.5-1.1 (sync db refreshed 2026-10-07) | `pacman -Si kwin` |
 | Plasma 6.8.0 | tag Thu 2026-10-08, release Wed 2026-10-14; 6.8.1 2026-10-20 | community.kde.org/Schedules/Plasma_6 |
 | Plasma 6.7.6 | Tue 2026-11-03 (last 6.7 bugfix before 6.7.7 in January) | same |
-| Upstream delta | 823 commits 6.7.5 → Plasma/6.8; 1,450 files | `git rev-list --count` |
-| Overlay delta | 31 of 35 overlay paths differ (+1,373 / −743); two are the PreciseTimer files, now upstream | `git diff --stat v6.7.5 origin/Plasma/6.8 -- <overlay>` |
+| Upstream delta | 823 commits 6.7.5 -> Plasma/6.8; 1,450 files | `git rev-list --count` |
+| Overlay delta | 31 of 35 overlay paths differ (+1,373 / -743); two are the PreciseTimer files, now upstream | `git diff --stat v6.7.5 origin/Plasma/6.8 -- <overlay>` |
 
 Per the versioning policy the CachyOS 6.8.0 package will replace this one
 during a normal upgrade, and the `kwin-latency-kwin-replaced` hook will say so.
@@ -37,7 +37,7 @@ Apply result on the 6.8 tree (0001/0002 skipped because they are upstream):
 | 0004 adaptive wakeup margin | 7 | 3 | renderloop.cpp, renderloop_p.h |
 | 0005 kernel release gate | 14 | 5 | renderloop.cpp, renderloop_p.h |
 | 0006 adaptive margin v2 | 12 | 3 | renderloop.cpp, renderloop_p.h |
-| 0007 libinput telemetry | 12 | 0 | — (offsets only) |
+| 0007 libinput telemetry | 12 | 0 | -- (offsets only) |
 | 0008 telemetry sampling | 16 | 2 | renderloop.cpp, renderloop_p.h |
 | 0009 adaptive render budget | 19 | 7 | renderloop.cpp, renderloop_p.h, glrendertimequery.cpp |
 | 0010 VRR cadence coalescing | 11 | 3 | renderloop.cpp, renderloop_p.h |
@@ -46,12 +46,12 @@ Apply result on the 6.8 tree (0001/0002 skipped because they are upstream):
 | 0013 NVIDIA color pipeline gate | 3 | 1 | drm_gpu.cpp |
 | 0014 inverse sRGB fix | 3 | 1 | colorspace.cpp (context only) |
 | 0015 color hot-path cache | 30 | 8 | compositor.cpp, colormanagement.glsl, glshader.cpp, glshadermanager.{cpp,h}, itemrenderer_opengl.h, test_colorspaces.cpp |
-| 0016 mandatory curve compensation | 19 | 0 | — (offsets only) |
+| 0016 mandatory curve compensation | 19 | 0 | -- (offsets only) |
 | 0017 frame and color capture | 30 | 2 | compositor.cpp |
 | 0018 wake-sample guard | 1 | 1 | renderloop.cpp |
 | 0019 default policy / timer clamp | 5 | 3 | drm_gpu.cpp, renderloop.cpp |
 | 0020 runtime opt-in policy | 11 | 5 | renderloop.cpp |
-| 0021 CSC PQ scale | 8 | 0 | — (offsets only) |
+| 0021 CSC PQ scale | 8 | 0 | -- (offsets only) |
 
 Failures cascade inside `renderloop.cpp`, so the per-patch numbers overstate
 the work there; the cluster view in section 5 is the honest estimate.
@@ -72,10 +72,10 @@ the work there; the cluster view in section 5 is the honest estimate.
 | 0012 reason-coded capture | Partly overtaken: `OutputLayer::presentedDirectScanoutItem()` and the zero-copy presentation-feedback flag (`41a7a8b3c7`) now expose *whether* scanout happened, not *why* | Keep, rework; build on the upstream getter |
 | 0013 NVIDIA color pipeline gate | **Obsolete.** 6.8 sets `DRM_CLIENT_CAP_PLANE_COLOR_PIPELINE` by default on every driver, NVIDIA and AMD included (drm_gpu.cpp:207; 6.7.5 excluded both) | **Drop**; see the hazard below |
 | 0014 inverse sRGB fix | **Not fixed.** `sRGBinverseEOTF` still divides by 12.92 (colorspace.cpp:803); the GLSL multiplies | Keep (one-line context refresh) and **submit upstream** |
-| 0015 color hot-path cache | Not upstream. The shader path changed underneath it: one item renderer per render device (`01390f9f39`, `ad28dc8caa`), desktop GL dropped (`16b21b5e18`), premultiplied QColor uniforms (`c908a32618`), always clip to source range (`2a811c6489`), HLG (`2ccdca3eb7`) | Rework and **re-benchmark** before keeping; candidate to drop if the µs-scale win does not survive |
+| 0015 color hot-path cache | Not upstream. The shader path changed underneath it: one item renderer per render device (`01390f9f39`, `ad28dc8caa`), desktop GL dropped (`16b21b5e18`), premultiplied QColor uniforms (`c908a32618`), always clip to source range (`2a811c6489`), HLG (`2ccdca3eb7`) | Rework and **re-benchmark** before keeping; candidate to drop if the us-scale win does not survive |
 | 0016 mandatory curve compensation | **Not upstream.** 6.8 still rejects a pipeline when a non-bypassable op is left over (`bdf2ed2ae1`, `44b4557b5c`); it adds `FixedMatrix` YUV ops, 128-entry LUTs and interpolation enums, all orthogonal | Keep; **add an explicit gate** (hazard) |
 | 0018 wake-sample guard | n/a | Fold into the 0004/0006 rework |
-| 0019 defaults, timer clamp, NVIDIA opt-in | `PreciseTimer::start` has no ≤ 0 clamp upstream (deadline 0 disarms, negative is `qFatal`); the NVIDIA opt-in is now inverted by the upstream default | Split: keep the clamp as its own patch and **submit upstream**; redo the policy defaults; re-decide NVIDIA |
+| 0019 defaults, timer clamp, NVIDIA opt-in | `PreciseTimer::start` has no <= 0 clamp upstream (deadline 0 disarms, negative is `qFatal`); the NVIDIA opt-in is now inverted by the upstream default | Split: keep the clamp as its own patch and **submit upstream**; redo the policy defaults; re-decide NVIDIA |
 | 0020 runtime opt-in policy | n/a | Keep, rework with the renderloop cluster |
 | 0021 CSC PQ scale | Not upstream | Keep as is |
 
@@ -95,7 +95,7 @@ Two consequences, one for stock users and one for this series.
   live by default. At rebase, either gate 0016/0021 on the kwinrc policy
   switch from 0020, or have the series default `KWIN_DRM_USE_COLOR_PIPELINE`
   off on NVIDIA until the live test in
-  `DIRECT_SCANOUT_NVIDIA_INVESTIGATION_2026-08-23.md` §5 has run.
+  `DIRECT_SCANOUT_NVIDIA_INVESTIGATION_2026-08-23.md` section 5 has run.
 
 ## 4. What upstream changed that the design cares about
 
@@ -111,7 +111,7 @@ Two consequences, one for stock users and one for this series.
 - **C2 and C3 are untouched.** `RenderJournal` is byte-identical between
   6.7.5 and 6.8; the commit-thread margin still adds lateness immediately and
   decays surplus at 1/10 per frame, clamped to min(3 ms, vblank/2)
-  (drm_commit_thread.cpp:169–181). Both levers remain open.
+  (drm_commit_thread.cpp:169-181). Both levers remain open.
 - **Render time is split.** GPU-only from the GL query, CPU from the
   compositor, 2 ms floor applied in the render loop. 0009 gets simpler
   (the floor is in a file the series already owns) but must say which span
@@ -138,14 +138,14 @@ Order by dependency and risk; sizes in story points on the project scale.
 1. **Packaging (2).** `pkgver=6.8.0`, CachyOS `pkgrel`, new tarball sha,
    drop the two `invent.kde.org` sources and their `prepare()` lines, keep
    the `KWIN_LATENCY_BAKED_KERNEL_RELEASE` export. Dependency floors moved:
-   Qt ≥ 6.11, KF6 ≥ 6.30, wayland ≥ 1.26, wayland-protocols ≥ 1.49,
-   plasma-wayland-protocols ≥ 1.23, libdrm ≥ 2.4.127, pipewire ≥ 1.4;
+   Qt >= 6.11, KF6 >= 6.30, wayland >= 1.26, wayland-protocols >= 1.49,
+   plasma-wayland-protocols >= 1.23, libdrm >= 2.4.127, pipewire >= 1.4;
    `KWIN_BUILD_SCREENLOCKER` and both `check()` test targets still exist.
    Copy the CachyOS 6.8 PKGBUILD depends rather than hand-editing.
 2. **Color cluster (2).** 0014 context refresh; 0016/0021 apply as is but
    gain the explicit gate; 0013 dropped; the 0019 timer clamp becomes a
    one-hunk patch. Submit 0014 and the clamp to KDE in the same week.
-3. **Render-loop cluster (5).** 0003–0006, 0008, 0009, 0010, 0018, 0019
+3. **Render-loop cluster (5).** 0003-0006, 0008, 0009, 0010, 0018, 0019
    policy, 0020. Re-derive on the 6.8 `scheduleRepaint`; fold 0018 in;
    rewrite 0009's span plumbing; keep the controllers' nanosecond state
    and refresh-relative bounds unchanged so the replay tests still hold.

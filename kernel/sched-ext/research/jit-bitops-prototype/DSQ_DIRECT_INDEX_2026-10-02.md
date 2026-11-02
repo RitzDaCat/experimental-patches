@@ -1,4 +1,4 @@
-# Direct DSQ index: implementation and simulation — 2026-10-02
+# Direct DSQ index: implementation and simulation: 2026-10-02
 
 The proposed kernel-owned lookup cache is implemented in an isolated kernel.
 Six ordinary-kernel validation configurations and all 20 slots in a five-block
@@ -34,7 +34,7 @@ same candidate image. `/sys/kernel/sched_ext/root/dsq_direct_entries` reports
 without writes on each lookup.
 
 Cake needs no new BPF API or source changes. Its custom IDs on this 16-thread,
-one-LLC host are covered by the table: IDs 0–15 and 1026 occupy three 64-byte
+one-LLC host are covered by the table: IDs 0-15 and 1026 occupy three 64-byte
 table lines. That is software lookup coverage, **not a measured L1 hit rate**.
 The queue objects themselves still change across cores. The design removes
 hash work; it does not remove all shared-memory traffic.
@@ -107,7 +107,7 @@ and missing results during races are accepted.
 
 Each test-scheduler activation additionally performs 1025 sequential assertions
 covering missing, duplicate, destroy/recreate and boundary IDs: 0, 1, 1026,
-2047, 2048, 65536, 2^32 and 2^63−1; creation with the built-in flag is rejected.
+2047, 2048, 65536, 2^32 and 2^63-1; creation with the built-in flag is rejected.
 Real scheduling queues at IDs 7 and 4096 exercise insert, count, peek and move.
 Each guest repeats lifecycle activation/teardown and tests ordinary automatic
 native bitops plus forced portable Cake.
@@ -128,12 +128,12 @@ marked the affected boots failed:
 1. The candidate reported a possible lock cycle between `p->pi_lock` and a
    workqueue pool lock. **The unchanged baseline reproduced the same cycle**
    in `baseline-kasan-poc-on-retry`. The trace goes through
-   `select_task_rq_fair()` → `poc_check_skip_fallback()` → `schedule_work()`
+   `select_task_rq_fair()` -> `poc_check_skip_fallback()` -> `schedule_work()`
    (`kernel/sched/poc_selector.c:1530`) during scheduler teardown. The new
    DSQ index lock is absent. This establishes that the cycle predates this
    index patch; it does not dismiss the warning as harmless.
 2. Separate candidate and baseline boots reported an early KASAN
-   wild-memory-access from `do_raw_spin_lock()` → `handle_edge_irq()` during
+   wild-memory-access from `do_raw_spin_lock()` -> `handle_edge_irq()` during
    `identify_boot_cpu()`, before guest init or scheduler activation. Its root
    cause is unresolved. Disabling the POC selector inside the candidate guest
    does not address a failure that occurs before init; those runs still fail.
@@ -156,7 +156,7 @@ of 20,000 xorshift steps. Total: **12,800 synthetic iterations and 256 million
 work steps**. These are not rendered game frames, despite the harness's `frames`
 field name.
 
-| Block | Hash wall time (ms) | Direct wall time (ms) | Direct − hash (ns) | Change |
+| Block | Hash wall time (ms) | Direct wall time (ms) | Direct - hash (ns) | Change |
 |---|---:|---:|---:|---:|
 | 1 | 182.420547 | 182.295580 | -124,966.0 | -0.069% |
 | 2 | 181.905816 | 179.528749 | -2,377,067.5 | -1.307% |

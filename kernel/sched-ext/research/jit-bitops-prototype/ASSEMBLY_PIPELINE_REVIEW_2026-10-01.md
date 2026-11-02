@@ -70,7 +70,7 @@ The mask supplies the bound needed by subsequent BPF indexing. This is why
 |---|---|---|
 | Repeated feature/symbol tests | Validate once in loader; effective gates | Implemented; actual JIT captures and live slots |
 | Dead immutable-flag reads | Compile-time specialized BPF variants, or a verifier/JIT pass that can safely remove now-dead immutable loads | Relocation, observability, bounds and fallback semantics; compare full JIT, not just C |
-| Unnecessary caller saves | Compiler `bpf_fastcall` plus truthful kernel `KF_FASTCALL` support | Preserved R2–R5 for unary ops on every allowed backend/fallback |
+| Unnecessary caller saves | Compiler `bpf_fastcall` plus truthful kernel `KF_FASTCALL` support | Preserved R2-R5 for unary ops on every allowed backend/fallback |
 | `&63` bound | Teach verifier the intrinsic's return range, including input-dependent nonzero facts | Zero CTZ/CLZ returns 64; never declare an unconditional 0..63 range |
 | RDI/RAX argument/result shuffles | A real BPF operation/intrinsic with flexible operands, or a proven register-aware JIT fusion | LLVM lowering, verifier, JIT, interpreter/backend semantics and liveness |
 | Repeated data loads | Reduce register pressure, keep values live, combine mask work and reuse snapshots | Cache traffic and register spills under the full callback |
@@ -130,9 +130,9 @@ The two p99 block effects were **-22,950 and -20,750 ns**. This is a positive
 short screen worth following up. It does not prove that four fewer static
 instructions directly caused a 21.85 microsecond frame difference.
 
-Estimated non-appsim CPU busy ranged 49.02–50.09% in the ablation and
-48.89–49.22% in the wrapper comparison; wrapper arm means were 49.12% and
-49.08%. Host busy was about 82–83%. Desktop work was left running. Non-appsim
+Estimated non-appsim CPU busy ranged 49.02-50.09% in the ablation and
+48.89-49.22% in the wrapper comparison; wrapper arm means were 49.12% and
+49.08%. Host busy was about 82-83%. Desktop work was left running. Non-appsim
 busy includes harness and kernel work; it is not isolated external-process
 accounting. Quantiles are equally weighted slot means. Frames are correlated,
 and this fixed-cadence simulator is not uncapped game FPS, input-to-photon,
@@ -161,7 +161,7 @@ already handles many constant divisors. Leave division-free off by default.
 Cake is not completely blind to interrupts. `cake_irq_live[]` receives four
 handler entry/exit tracepoints, `cpu_irq_hot_words/cores` uses `/proc/stat`
 IRQ+softirq time, and `cake_cpu_tick_soon()` can use the next clock event.
-The sink monitor runs at 1–4 second intervals with confirmation/hysteresis.
+The sink monitor runs at 1-4 second intervals with confirmation/hysteresis.
 `CLK_TCK=100` on this host means exported proc counters have 10 ms units,
 despite finer internal IRQ accounting. A depth bit gives no remaining duration.
 

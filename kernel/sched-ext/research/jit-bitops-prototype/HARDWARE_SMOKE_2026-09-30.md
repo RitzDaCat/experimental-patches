@@ -1,4 +1,4 @@
-# Patched-hardware bitops smoke validation — 2026-09-30
+# Patched-hardware bitops smoke validation: 2026-09-30
 
 **Pass for primitive correctness and actual JIT emission. Performance acceptance
 remains pending.** The user reported a noisy OS and requested functional patch
@@ -24,14 +24,14 @@ executions: **17,340 executions, zero mismatches**. The vectors include zero,
 all ones, every single set bit and its complement, alternating patterns, and
 random inputs. CTZ of zero returns 64; POPCNT stays consistent with the independent
 reference. The probe also checks its four live salt values through the checksum.
-This does not replace the patch's separate explicit R6–R9 preservation selftest.
+This does not replace the patch's separate explicit R6-R9 preservation selftest.
 
 Actual loaded native bytes, in all three transactions:
 
 | Program | Operation instruction | Native program size |
 |---|---|---|
-| `hw_ctz` | `f3 48 0f bc c7` — `tzcnt %rdi,%rax` | 373 bytes |
-| `hw_pop` | `f3 48 0f b8 c7` — `popcnt %rdi,%rax` | 373 bytes |
+| `hw_ctz` | `f3 48 0f bc c7` -- `tzcnt %rdi,%rax` | 373 bytes |
+| `hw_pop` | `f3 48 0f b8 c7` -- `popcnt %rdi,%rax` | 373 bytes |
 | `sw_ctz` | no TZCNT in the correctness-run dump | 421 bytes |
 | `sw_pop` | no POPCNT in the correctness-run dump | 457 bytes |
 

@@ -1,10 +1,10 @@
-# Further scalar-instruction passes — October 2, 2026
+# Further scalar-instruction passes: October 2, 2026
 
 Selective CTZ/POPCNT fastcall is the better next compiler candidate from this
 pass: it retains the CPU-selection reduction and avoids the earlier all-unary
 CLZ histogram growth. Moving portable fallbacks out of line did not reduce the
 native release code. A wider CTZ queue scan now has an exact-order prototype.
-The [cost ladder §10](https://github.com/RitzDaCat/scx/blob/RitzDaCat/scx_cake-nightly/scheds/rust/scx_cake/docs/AUDIT_OPERATION_COST_2026-09-15.md#10-local-hardware-costs-and-further-instruction-passes-2026-10-02)
+The [cost ladder section 10](https://github.com/RitzDaCat/scx/blob/RitzDaCat/scx_cake-nightly/scheds/rust/scx_cake/docs/AUDIT_OPERATION_COST_2026-09-15.md#10-local-hardware-costs-and-further-instruction-passes-2026-10-02)
 also records fresh 9800X3D hardware-counter measurements, including the cost of
 the count-result masks. None of this promotes a new default.
 
@@ -101,8 +101,8 @@ The [UBSan-enabled differential validator](wide-ring-validate.c) passed:
 
 | Coverage | Cases |
 |---|---:|
-| Every mask/source/early-success position for spans 1–10 | 188,412 |
-| Every span 1–1,024 and source, empty/full/self/boundary patterns | 2,099,200 |
+| Every mask/source/early-success position for spans 1-10 | 188,412 |
+| Every span 1-1,024 and source, empty/full/self/boundary patterns | 2,099,200 |
 | Seeded arbitrary masks, early success and alternating per-read mutation | 200,000 |
 | Total, zero mismatches | **2,487,612** |
 
@@ -136,9 +136,9 @@ not the game or a GPU/input benchmark. Fixed-cadence FPS is not throughput.
 Two host load-only inspections passed before measurement. Native byte lengths
 are available in `programs.tsv`, but native bytes are **hidden** at the retained
 `kptr_restrict=2`; `jit_visible=false`. The files with actual native disassembly
-in this pass are VM captures. Host metadata reports select_cpu 6,361 → 6,338
-bytes, enqueue 8,419 → 8,417 and dispatch 4,935 → 4,930. Translated BPF is visible;
-its stack-access counts are respectively 80 → 73, 121 → 119 and 76 → 74.
+in this pass are VM captures. Host metadata reports select_cpu 6,361 -> 6,338
+bytes, enqueue 8,419 -> 8,417 and dispatch 4,935 -> 4,930. Translated BPF is visible;
+its stack-access counts are respectively 80 -> 73, 121 -> 119 and 76 -> 74.
 
 ### Initial five-block instrumented screen
 
@@ -148,34 +148,34 @@ paired block effects and Student t with four degrees of freedom. They describe
 the observations under this desktop load; workload interference prevents causal
 performance acceptance even if a particular interval were narrow.
 
-| Metric | Ordinary | Selective | Change B − A | Paired 95% interval |
+| Metric | Ordinary | Selective | Change B - A | Paired 95% interval |
 |---|---:|---:|---:|---:|
-| select_cpu ns/call | 141.461 | 142.563 | +1.102 | −16.479 to +18.682 |
-| enqueue ns/call | 371.554 | 384.322 | +12.769 | −114.490 to +140.027 |
-| dispatch ns/call | 101.195 | 93.367 | −7.828 | −108.489 to +92.834 |
-| BPF CPU ms/second | 96.564 | 95.267 | −1.297 (−1.34%) | −56.132 to +53.538 |
-| Frame p99 ns | 629,160 | 627,440 | −1,720 | −24,979 to +21,539 |
-| Frame p99.9 ns | 714,420 | 694,670 | −19,750 | −225,971 to +186,471 |
+| select_cpu ns/call | 141.461 | 142.563 | +1.102 | -16.479 to +18.682 |
+| enqueue ns/call | 371.554 | 384.322 | +12.769 | -114.490 to +140.027 |
+| dispatch ns/call | 101.195 | 93.367 | -7.828 | -108.489 to +92.834 |
+| BPF CPU ms/second | 96.564 | 95.267 | -1.297 (-1.34%) | -56.132 to +53.538 |
+| Frame p99 ns | 629,160 | 627,440 | -1,720 | -24,979 to +21,539 |
+| Frame p99.9 ns | 714,420 | 694,670 | -19,750 | -225,971 to +186,471 |
 
-Total busy spans **41.45–82.98%**. Whole-phase sampled Unreal process activity
+Total busy spans **41.45-82.98%**. Whole-phase sampled Unreal process activity
 averages **27.14% of total machine capacity**, including gaps and attachment
 time; it is not a per-slot matched external-load measurement. Average arm busy
 61.32% versus 61.17% conceals major within-block differences. Dispatch's five
-effects are −113.03, −4.84, +113.82, −28.18 and −6.91 ns/call. This is why the
+effects are -113.03, -4.84, +113.82, -28.18 and -6.91 ns/call. This is why the
 small overall average cannot be called a repeatable instruction saving.
 
 ### Separate probe-off frame screen
 
 Eight valid slots, order `ABBABAAB`, 249,496 frames. BPF accounting remained off,
-with zero lifetime counters verified by the harness. p99 changes **−450 ns**,
-p99.9 **−3,850 ns**, mean adjacent-frame absolute jitter **−422.8 ns**, mean
-slot maximum **−35,750 ns**, and 0.1% low FPS **+26.28 (+1.79%)**.
+with zero lifetime counters verified by the harness. p99 changes **-450 ns**,
+p99.9 **-3,850 ns**, mean adjacent-frame absolute jitter **-422.8 ns**, mean
+slot maximum **-35,750 ns**, and 0.1% low FPS **+26.28 (+1.79%)**.
 
-The two p99 effects are **−1,550 and +650 ns**, and p99.9 effects **−12,600 and
+The two p99 effects are **-1,550 and +650 ns**, and p99.9 effects **-12,600 and
 +4,900 ns**. Every corresponding two-block t interval includes zero; two blocks
-are only a screen. Total busy spans 30.44–45.76%, with 34.59% in A versus 30.71%
+are only a screen. Total busy spans 30.44-45.76%, with 34.59% in A versus 30.71%
 in B. Background work fell during the first block. The raw non-appsim subtraction
-even becomes negative (down to −0.87%) in some quiet slots: its two accounting
+even becomes negative (down to -0.87%) in some quiet slots: its two accounting
 sources are not precise enough to price near-zero external activity. Those
 values are retained and marked physically invalid as a background estimate,
 not clamped into a false zero-noise claim. One-second process samples are also
@@ -193,21 +193,21 @@ BPF cost, other callbacks, frame tails and stability as guardrails.
 All 20 slots passed, retaining another 623,740 frames. The run started near
 30.6% total busy, but separate Blender activity appeared during block four.
 Slot 14/A reached 38.7% and slot 16/B 90.4% total busy. One-second process
-samples identify Blender using roughly 68–70% of total machine capacity during
+samples identify Blender using roughly 68-70% of total machine capacity during
 the latter slot; instantaneous total busy approached 100%. No process was
 stopped. This cohort is **quiet-start, later Blender-contaminated**, not a clean
 hardware confirmation.
 
-| Metric | Ordinary | Selective | Change B − A | Paired 95% interval |
+| Metric | Ordinary | Selective | Change B - A | Paired 95% interval |
 |---|---:|---:|---:|---:|
-| select_cpu ns/call | 85.134 | 84.797 | **−0.337** | −4.136 to +3.461 |
-| enqueue ns/call | 166.779 | 160.520 | −6.260 | −26.933 to +14.414 |
-| dispatch ns/call | 17.573 | 53.799 | +36.226 | −58.725 to +131.178 |
-| BPF CPU ms/second | 41.444 | 33.401 | −8.043 (−19.41%) | −33.211 to +17.124 |
-| Frame p99 ns | 619,750 | 638,930 | +19,180 | −33,037 to +71,397 |
-| Frame p99.9 ns | 650,550 | 724,300 | +73,750 | −133,453 to +280,953 |
+| select_cpu ns/call | 85.134 | 84.797 | **-0.337** | -4.136 to +3.461 |
+| enqueue ns/call | 166.779 | 160.520 | -6.260 | -26.933 to +14.414 |
+| dispatch ns/call | 17.573 | 53.799 | +36.226 | -58.725 to +131.178 |
+| BPF CPU ms/second | 41.444 | 33.401 | -8.043 (-19.41%) | -33.211 to +17.124 |
+| Frame p99 ns | 619,750 | 638,930 | +19,180 | -33,037 to +71,397 |
+| Frame p99.9 ns | 650,550 | 724,300 | +73,750 | -133,453 to +280,953 |
 
-The select_cpu block effects are +0.599, −0.604, +3.131, −5.226 and +0.414
+The select_cpu block effects are +0.599, -0.604, +3.131, -5.226 and +0.414
 ns/call. The large apparent aggregate CPU saving is concentrated in block four;
 the other four aggregate-cost effects are all positive. It must not be attributed
 to a few removed instructions. Callback frequency and which scheduling paths
@@ -220,9 +220,9 @@ All returned normally and restored native scheduling. BPF accounting returned
 to zero. Temporary provisioned copies retain their exact bytes but have had
 their file capabilities removed after measurement. Relevant raw output directories are:
 
-- `runs/cost/20261002T023746_appsim/` — initial instrumented screen.
-- `runs/cost/20261002T024449_appsim/` — accounting-off frame screen.
-- `runs/cost/20261002T024932_appsim/` — separately declared quiet-start screen.
+- `runs/cost/20261002T023746_appsim/` -- initial instrumented screen.
+- `runs/cost/20261002T024449_appsim/` -- accounting-off frame screen.
+- `runs/cost/20261002T024932_appsim/` -- separately declared quiet-start screen.
 
 `cost-analysis.json`, `frames-analysis.json`, `quiet-cost-analysis.json` and
 the process-sample JSONL files live in the measurement root named above.

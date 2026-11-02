@@ -26,8 +26,8 @@ the scalar/fastcall/bounds/DSQ work; it does not contain these new proposals.
 |---|---|
 | KWin main, libinput and both display threads currently use `SCHED_RR`, priority 1 | Cake cannot directly schedule these RT threads. Measure RT interference and the ordinary threads around them; compositor changes are a separate component. |
 | `sched_waking` precedes normal CPU selection; `sched_wakeup` is in the later wake-completion path | Publish the reason for a wake before placement. A `sched_wakeup` observer is too late for that first choice. |
-| Cake already tracks live generic IRQ/softirq handler depth | A new generic “IRQ happened” hook duplicates existing work. Improve coverage, information quality, or cost. |
-| Cake's chronic IRQ detector reads `/proc/stat` on 1–4 second windows | An internal nanosecond counter can improve resolution and adaptation. This does not mean every current IRQ hint is seconds old: the live depth path is separate. |
+| Cake already tracks live generic IRQ/softirq handler depth | A new generic "IRQ happened" hook duplicates existing work. Improve coverage, information quality, or cost. |
+| Cake's chronic IRQ detector reads `/proc/stat` on 1-4 second windows | An internal nanosecond counter can improve resolution and adaptation. This does not mean every current IRQ hint is seconds old: the live depth path is separate. |
 | NVIDIA already processes completed semaphore-surface fences directly in its callback | Removing a supposed mandatory worker hop would target a hop that this completion path already avoids. Other deferred paths remain worth measuring. |
 | The generic fence-signaled tracepoint precedes publication of the fence timestamp | Reading `fence->timestamp` there can read the wrong union state. Use the function's timestamp argument or separately label observation time. |
 | KWin coalesces consecutive pointer-motion events and retains the latest timestamp | Latest sample age alone can conceal older queued work; measure both backlog age and freshest input. |
@@ -102,7 +102,7 @@ Earlier observation does not make an incomplete GPU operation or unfinished
 input packet ready. A blocked task cannot perform its dependent work just
 because Cake knows about it sooner.
 
-### 2.1 How direct can GPU → CPU scheduling be?
+### 2.1 How direct can GPU -> CPU scheduling be?
 
 For an already-registered **direct CPU fence waiter**, the source-level route
 can be:
@@ -144,14 +144,14 @@ execution. For a remote target, a notification/IPI or deferred wake-list path
 may be necessary. Eliminating it by always using the interrupt CPU can be worse
 when that CPU is busy or has poor cache/SMT placement.
 
-GPU→GPU semaphore handoffs have a different objective: they may have no CPU
+GPU->GPU semaphore handoffs have a different objective: they may have no CPU
 waiter at all. In the reviewed NVIDIA sync-FD path, a worker is needed for an RM
 operation that cannot run in the completion context. If that worker is the
 critical dependency, scheduling the game earlier does not remove the stall.
 Associate urgency with the required worker or remove the deferral only after
 proving the driver operation is safe in a different context. [N2]
 
-### 2.2 Mouse/keyboard → CPU: find actual queue boundaries
+### 2.2 Mouse/keyboard -> CPU: find actual queue boundaries
 
 For a conventional USB HID report delivered through KWin, the representative
 source path is:
@@ -168,14 +168,14 @@ USB host-controller completion
   -> game samples input / performs dependent work
 ```
 
-HID driver quirks and non-USB devices may take other paths. The HID→input→evdev
+HID driver quirks and non-USB devices may take other paths. The HID->input->evdev
 calls are not individually userspace round trips. The **queued Qt handoff and
 client delivery are actual potential queue boundaries**; each may need CPU
 service, although an already-running consumer need not incur another context
 switch. The two KWin stages are RT on this host. [K9, K10, W4, W5, H1]
 
-The shortest general improvement is to preserve “input pending for this
-consumer” across those existing handoffs, and reduce their measured queue age.
+The shortest general improvement is to preserve "input pending for this
+consumer" across those existing handoffs, and reduce their measured queue age.
 Directly waking the game on the USB IRQ would frequently be wrong: the packet
 may be incomplete, focus/routing unknown, or the game intentionally waiting to
 sample closer to presentation. Bypassing KWin would require a different input
@@ -192,14 +192,14 @@ ownership/routing design and application support, not just a Cake instruction.
 | Waiting | Task blocks and the relevant wait implementation registers its dependency | `stopping` alone includes preemption. An ordinary `S`/sleep state does not identify what will release it. |
 | CPU work done | Explicit phase end or completion object published by the producer | Going to sleep, yielding, or using up a slice does not mean the frame/phase finished. |
 | GPU work done | Relevant GPU timeline/fence completion | The software callback is later than hardware completion by an unmeasured amount; device timestamps need clock conversion. |
-| Frame visible | Presentation feedback/scanout evidence; physical measurement for light output | GPU completion, buffer release and CPU “done” are not the same event. |
+| Frame visible | Presentation feedback/scanout evidence; physical measurement for light output | GPU completion, buffer release and CPU "done" are not the same event. |
 
 Cake already receives running/stopping transitions for its tasks; do not add a
 second tracing round trip to tell it what its callback already knows. Use
 all-class scheduler observation to cover RT threads that Cake does not own.
-Associate dependency generations with these states so a late “done” from frame
+Associate dependency generations with these states so a late "done" from frame
 N cannot clear pending work for frame N+1. For multiple producers, define fan-in
-readiness; for multiple waiters, define fan-out consumption. [K3–K5]
+readiness; for multiple waiters, define fan-out consumption. [K3-K5]
 
 ### 2.4 Count expensive handoffs, not just function names
 
@@ -237,7 +237,7 @@ substitute for finding the critical GPU/input dependency path.
 
 ### What Cake already does
 
-`cake.bpf.c:904–1005` has a userspace-maintained chronic IRQ mask, per-CPU
+`cake.bpf.c:904-1005` has a userspace-maintained chronic IRQ mask, per-CPU
 live handler depth from four BTF tracepoint programs, and an optional
 `tick_cpu_device` next-event check. CPU selection combines these hints with
 normal candidate selection and idle claiming. `main.rs:1249` parses IRQ plus
@@ -272,7 +272,7 @@ A broader live occupancy signal is a separate extension at correctly matched
 IRQ entry/exit boundaries. It costs writes and possibly timestamp reads on
 interrupt paths. Gate it when unused and benchmark its writer overhead. Avoid
 adding a BPF policy callback for every interrupt when an existing callback can
-read a small summary. Do not lock a remote runqueue to obtain a “perfect” sample.
+read a small summary. Do not lock a remote runqueue to obtain a "perfect" sample.
 
 ### The invisible work that remains
 
@@ -318,13 +318,13 @@ The useful information is closer to:
 Cache immutable device identity and topology outside the hot path. For dynamic
 state, prefer driver-published progress generations or task dependency tokens.
 Do not read MMIO, call NVML, walk driver objects, wait for GSP/RM responses or
-acquire driver locks from `select_cpu`/`enqueue`. A cheap stale global “GPU busy”
+acquire driver locks from `select_cpu`/`enqueue`. A cheap stale global "GPU busy"
 bit can make scheduling less accurate despite being cheap to load.
 
 For this NVIDIA version, investigate semaphore-surface fence progress and its
 actual consumers first. The open kernel module source and module BTF provide
-concrete hooks, but do not expose a universal “next game frame will finish at
-time T” interface. CPU scheduler policy also cannot directly reorder all GPU
+concrete hooks, but do not expose a universal "next game frame will finish at
+time T" interface. CPU scheduler policy also cannot directly reorder all GPU
 work or overcome firmware execution limits. [N2]
 
 **Smallest experiment:** correlate the known NVIDIA completion hooks with
@@ -342,7 +342,7 @@ In NVIDIA `615.71.09`, `__nv_drm_semsurf_ctx_callback()` directly invokes
 callbacks. Completed fences are removed under the context lock and signaled
 after releasing that lock. This already lets some waiters proceed before the
 worker runs. Measure callback re-arming separately from completion delivery.
-[N2, lines 825–940]
+[N2, lines 825-940]
 
 A different path, `__nv_drm_semsurf_wait_fence_cb()`, queues work to register a
 semaphore update with RM. The source explicitly requires deferral because the
@@ -351,7 +351,7 @@ immediate path from the ioctl. This creates a concrete hypothesis: queue-to-run
 delay of the required worker may postpone dependent GPU work. It does not
 justify moving a potentially unsafe RM operation into the interrupt callback.
 Measure the actual worker's scheduling class, dependency and queue delay first.
-[N2, lines 1574–1640, 1718–1733]
+[N2, lines 1574-1640, 1718-1733]
 
 ### Publish valid completion information
 
@@ -382,8 +382,8 @@ rendering. `dma_fence_set_deadline()` is an advisory driver facility; the two
 fence-op tables reviewed in this NVIDIA DRM file have no `set_deadline` handler.
 That is not a claim about every NVIDIA fence type. [N2, K4, D2]
 
-**Smallest experiment:** measure completion observation → successful task wake
-→ first CPU service, plus callback → worker service → RM registration on the
+**Smallest experiment:** measure completion observation -> successful task wake
+-> first CPU service, plus callback -> worker service -> RM registration on the
 deferred path. Improve the stage that actually consumes time.
 
 ## 6. Thread waits, futexes, epoll and Proton
@@ -418,10 +418,10 @@ makes arbitrary extra scheduler callbacks undesirable. [K7, D3]
 
 **Epoll/eventfd/socket/timer waits:** epoll can combine readiness from many
 sources and wake different consumers. Store bounded pending readiness on the
-appropriate object/handoff, not just “last source on this CPU.” Already-ready
+appropriate object/handoff, not just "last source on this CPU." Already-ready
 fds and already-running consumers need no new wake transition. Distinguish
 timer expiry and deliberately paced waits from input/completion readiness.
-Avoid making every eventfd a “game-critical” event. [K8]
+Avoid making every eventfd a "game-critical" event. [K8]
 
 **Smallest experiment:** instrument successful readiness-to-wake transitions
 for one verified wait family used by a workload. Track cause coverage, duplicate
@@ -459,7 +459,7 @@ do not automatically provide a scheduler-ready CPU deadline. Convert clock
 domains explicitly and distinguish a target from measured completion. A useful
 CPU latest-start estimate is:
 
-`target latch time − estimated remaining CPU/GPU work − uncertainty allowance`
+`target latch time - estimated remaining CPU/GPU work - uncertainty allowance`
 
 This is a prediction, not a real-time guarantee. Reject stale generations and
 implausible targets, and measure calibration error. Making a producer run
@@ -477,7 +477,7 @@ Its estimate includes an additional 1 ms timer/scheduler allowance. It then
 starts a `Qt::PreciseTimer` using a duration cast to milliseconds. Timer
 quantization, callback service delay, actual rendering and the safety estimate
 are distinct terms; blindly deleting the allowance cannot establish a win.
-[W1, lines 44–112]
+[W1, lines 44-112]
 
 KWin has information the kernel lacks: which surface/output matters, when a
 frame is eligible, which buffer/fence it needs, and whether it can use direct
@@ -499,7 +499,7 @@ Wayland synchronization has several different meanings:
 
 These contracts are in the installed XML and official protocol repository.
 Do not infer presentation from a released buffer or treat every completed fence
-as a compositor deadline. [P1–P5]
+as a compositor deadline. [P1-P5]
 
 **Host-specific constraint:** the main KWin, libinput and display threads are
 already RT. Increasing their Cake rank cannot help because they do not run
@@ -523,7 +523,7 @@ the client buffer lock. `evdev_events()` respects grabs and the actual client
 list. This is a useful readiness boundary; arbitrary early `input_event()`
 observation can precede packet completion and include filtered data. [K9]
 
-On this KWin version, libinput dispatch fills an event queue. The empty→nonempty
+On this KWin version, libinput dispatch fills an event queue. The empty->nonempty
 transition emits `eventsRead`; `libinputbackend.cpp` connects this to processing
 through a queued Qt connection. Processing combines consecutive motion events,
 sums motion deltas and retains the newest event timestamp. Thus, USB arrival,
@@ -542,7 +542,7 @@ The kernel input timestamp may be driver-supplied or sampled at receipt; it is
 not automatically the physical sensor timestamp. USB polling/report cadence,
 device firmware and controller interrupt moderation occur before Cake can
 schedule the consumer. At an assumed 1 kHz, the nominal report interval is 1 ms;
-at 8 kHz it is 125 µs. These are arithmetic examples, not a measurement of this
+at 8 kHz it is 125 us. These are arithmetic examples, not a measurement of this
 mouse. Globally changing a shared xHCI controller's interrupt behavior can
 increase overhead and affect other USB devices. [K9, D4]
 
@@ -562,7 +562,7 @@ path, so it cannot simply be counted as another hardware IRQ. [K9, D5]
 
 KWin's libinput processing checks seat key counts before forwarding state
 changes. Focus, grabs and application routing determine which client receives
-them. A kernel-wide “keyboard active” flag cannot identify that client or its
+them. A kernel-wide "keyboard active" flag cannot identify that client or its
 critical thread. Press/release ordering and focus loss must remain correct.
 Report grouping must also remain intact. [W4]
 
@@ -597,7 +597,7 @@ Draft name: `scx_bpf_cpu_interference(cpu, out, size)`.
 - No allocation, sleeping, remote runqueue locking or device operations.
 - Timestamp denotes a defined observation/publication instant; counters are
   durations, not a cross-CPU wall-clock origin.
-- Unsupported or inconsistent data means **unknown**, never “zero interference.”
+- Unsupported or inconsistent data means **unknown**, never "zero interference."
 - Use bounded coherence checks and a documented fallback. A 64-bit x86 scalar
   load and a portable coherent multi-field snapshot are different contracts.
 - Stage dynamic writer changes separately from a reader over existing state.
@@ -640,7 +640,7 @@ all cgroup policy automatically; Cake must preserve the policy it implements.
 
 Prefer existing locality and a genuinely available CPU, then use measured
 interference and valid near-term urgency as bounded refinements. Account for
-SMT sibling competition and higher-class work; “same CPU as GPU IRQ” is not a
+SMT sibling competition and higher-class work; "same CPU as GPU IRQ" is not a
 universal win. Limit extra reads to candidates worth considering. Deadline
 expiry or service completion removes the preference. Keep service/fairness
 accounting and authoritative idle claiming intact.
@@ -667,7 +667,7 @@ needed for this design.
 These dynamic caches have no measured hit rate yet. A valid, frequently hit
 cache can still worsen placement if its information is too stale. Report both
 snapshot availability and the rate at which a hint correctly identifies the
-actual dependency/interference. “Fewer loads” alone is not success.
+actual dependency/interference. "Fewer loads" alone is not success.
 
 For cost planning only: at 8,000 events/s, an assumed 100 ns extra work per event
 costs 0.8 ms CPU/s, or 0.08% of one core. Two such hooks cost 0.16%. Neither
@@ -681,8 +681,8 @@ refresh-period saving unless observed on actual presentation data.
 
 | Order | Experiment | Required changes | Keep criterion |
 |---|---|---|---|
-| 0 | Attribute existing ready→wake→run→present delays | Observation only; release hashes and clocks recorded | Known coverage and bounded observer overhead |
-| 1 | IRQ counter query; then separately improved live coverage | Kernel reader + Cake fallback | Less callback/writer cost or better placement and tails; no ghost “quiet” CPUs |
+| 0 | Attribute existing ready->wake->run->present delays | Observation only; release hashes and clocks recorded | Known coverage and bounded observer overhead |
+| 1 | IRQ counter query; then separately improved live coverage | Kernel reader + Cake fallback | Less callback/writer cost or better placement and tails; no ghost "quiet" CPUs |
 | 2 | Fence timestamp/cause instrumentation on a path actually used | Generic event or selected driver probe | Valid timestamps and actual consumer attribution |
 | 3 | One typed readiness path: direct fence waiter or verified NTSYNC/futex path | Core wake metadata + wait implementation + Cake reader | Fewer critical runnable delays with bounded service/fairness impact |
 | 4 | Input consumer handoff through KWin to game | Input/consumer metadata; optional userspace cooperation | Better press/release/motion-to-present age, not just cursor smoothness |
@@ -703,14 +703,14 @@ No zero-cost tracing assumption and no nanosecond cost estimate from VM wall tim
 - Configuration: features absent, IRQ accounting disabled, different module
   BTF, unpatched kernel, direct scanout, VRR/tearing, multi-output and Xwayland.
   Unknown signals retain ordinary scheduling. Verify release and portable paths.
-- Latency decomposition: source observation → readiness; readiness → accepted
-  wake; wake → first run; actual CPU service; worker handoff; GPU queue/execution;
-  input sampling → actual presentation. Include unsuccessful/duplicate wakes
+- Latency decomposition: source observation -> readiness; readiness -> accepted
+  wake; wake -> first run; actual CPU service; worker handoff; GPU queue/execution;
+  input sampling -> actual presentation. Include unsuccessful/duplicate wakes
   and already-running consumers separately.
 - Performance: callback ns/call and total CPU cost, migrations/coherence,
   fixed-work wall time, wake p50/p95/p99/p99.9, mean/max frame time and 1%/0.1%
   lows, frame variance, adjacent-frame jitter, input age, missed targets and
-  discarded frames. Do not combine these into an unexplained “latency” score.
+  discarded frames. Do not combine these into an unexplained "latency" score.
 - Compare counter-only, observer-only and policy-enabled builds to expose
   instrumentation perturbation. Use paired randomized/ABBA blocks through the
   maintained `cakebench` routes, report ns deltas and uncertainty, and retain
@@ -754,27 +754,27 @@ The manifest records absolute paths and SHA256 hashes. `K` means
 
 ### Official external code, specifications and documentation
 
-- **N1 — NVIDIA, current nvidia-smi documentation:** [utilization semantics](https://docs.nvidia.com/deploy/nvidia-smi/index.html#utilization).
-- **N2 — NVIDIA, open GPU kernel modules 615.71.09:** [fence implementation](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.71.09/kernel-open/nvidia-drm/nvidia-drm-fence.c), [module/firmware context](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.71.09/README.md).
-- **N3 — NVIDIA, open GPU kernel modules 615.71.09:** [KAPI semaphore callback registration and direct invocation](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.71.09/src/nvidia-modeset/kapi/src/nvkms-kapi-sync.c).
-- **W1 — KDE, KWin v6.7.5:** [render loop](https://github.com/KDE/kwin/blob/v6.7.5/src/core/renderloop.cpp).
-- **W2 — KDE, KWin v6.7.5:** [compositor](https://github.com/KDE/kwin/blob/v6.7.5/src/compositor.cpp), [explicit-sync integration](https://github.com/KDE/kwin/blob/v6.7.5/src/wayland/linux_drm_syncobj_v1.cpp).
-- **W3 — KDE, KWin v6.7.5:** [real-time class request](https://github.com/KDE/kwin/blob/v6.7.5/src/utils/realtime.cpp).
-- **W4 — KDE, KWin v6.7.5:** [libinput event queue, keyboard and pointer processing](https://github.com/KDE/kwin/blob/v6.7.5/src/backends/libinput/connection.cpp).
-- **W5 — KDE, KWin v6.7.5:** [queued thread handoff](https://github.com/KDE/kwin/blob/v6.7.5/src/backends/libinput/libinputbackend.cpp).
-- **P1 — Wayland:** [core surface/seat protocol](https://wayland.freedesktop.org/docs/html/apa.html).
-- **P2 — Wayland protocols 1.49:** [presentation feedback](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/stable/presentation-time/presentation-time.xml).
-- **P3 — Wayland protocols 1.49:** [DRM syncobj acquire/release](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml).
-- **P4 — Wayland protocols 1.49:** [FIFO](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/staging/fifo/fifo-v1.xml), [commit timing](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/staging/commit-timing/commit-timing-v1.xml).
-- **P5 — Wayland protocols 1.49:** [input timestamps and their clock relation](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/unstable/input-timestamps/input-timestamps-unstable-v1.xml).
-- **D1 — Linux documentation:** [DRM client engine statistics](https://docs.kernel.org/gpu/drm-usage-stats.html).
-- **D2 — Linux documentation:** [DMA fences and deadline/locking contracts](https://docs.kernel.org/driver-api/dma-buf.html).
-- **D3 — Linux documentation:** [NTSYNC ABI](https://docs.kernel.org/userspace-api/ntsync.html).
-- **D4 — Linux documentation:** [USB URB interval and completion context](https://docs.kernel.org/driver-api/usb/URB.html).
-- **D5 — Linux documentation:** [input event types and synchronization loss](https://docs.kernel.org/input/event-codes.html).
-- **D6 — Linux documentation:** [BPF kfunc lifetime/verifier contracts](https://docs.kernel.org/bpf/kfuncs.html), [sched_ext callbacks and policy scope](https://docs.kernel.org/scheduler/sched-ext.html).
-- **V1 — Khronos, Vulkan:** [VK_NV_low_latency2](https://docs.vulkan.org/refpages/latest/refpages/source/VK_NV_low_latency2.html).
-- **V2 — Khronos, Vulkan:** [vkLatencySleepNV and semaphore wait behavior](https://docs.vulkan.org/refpages/latest/refpages/source/vkLatencySleepNV.html).
+- **N1 -- NVIDIA, current nvidia-smi documentation:** [utilization semantics](https://docs.nvidia.com/deploy/nvidia-smi/index.html#utilization).
+- **N2 -- NVIDIA, open GPU kernel modules 615.71.09:** [fence implementation](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.71.09/kernel-open/nvidia-drm/nvidia-drm-fence.c), [module/firmware context](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.71.09/README.md).
+- **N3 -- NVIDIA, open GPU kernel modules 615.71.09:** [KAPI semaphore callback registration and direct invocation](https://github.com/NVIDIA/open-gpu-kernel-modules/blob/615.71.09/src/nvidia-modeset/kapi/src/nvkms-kapi-sync.c).
+- **W1 -- KDE, KWin v6.7.5:** [render loop](https://github.com/KDE/kwin/blob/v6.7.5/src/core/renderloop.cpp).
+- **W2 -- KDE, KWin v6.7.5:** [compositor](https://github.com/KDE/kwin/blob/v6.7.5/src/compositor.cpp), [explicit-sync integration](https://github.com/KDE/kwin/blob/v6.7.5/src/wayland/linux_drm_syncobj_v1.cpp).
+- **W3 -- KDE, KWin v6.7.5:** [real-time class request](https://github.com/KDE/kwin/blob/v6.7.5/src/utils/realtime.cpp).
+- **W4 -- KDE, KWin v6.7.5:** [libinput event queue, keyboard and pointer processing](https://github.com/KDE/kwin/blob/v6.7.5/src/backends/libinput/connection.cpp).
+- **W5 -- KDE, KWin v6.7.5:** [queued thread handoff](https://github.com/KDE/kwin/blob/v6.7.5/src/backends/libinput/libinputbackend.cpp).
+- **P1 -- Wayland:** [core surface/seat protocol](https://wayland.freedesktop.org/docs/html/apa.html).
+- **P2 -- Wayland protocols 1.49:** [presentation feedback](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/stable/presentation-time/presentation-time.xml).
+- **P3 -- Wayland protocols 1.49:** [DRM syncobj acquire/release](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml).
+- **P4 -- Wayland protocols 1.49:** [FIFO](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/staging/fifo/fifo-v1.xml), [commit timing](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/staging/commit-timing/commit-timing-v1.xml).
+- **P5 -- Wayland protocols 1.49:** [input timestamps and their clock relation](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/1.49/unstable/input-timestamps/input-timestamps-unstable-v1.xml).
+- **D1 -- Linux documentation:** [DRM client engine statistics](https://docs.kernel.org/gpu/drm-usage-stats.html).
+- **D2 -- Linux documentation:** [DMA fences and deadline/locking contracts](https://docs.kernel.org/driver-api/dma-buf.html).
+- **D3 -- Linux documentation:** [NTSYNC ABI](https://docs.kernel.org/userspace-api/ntsync.html).
+- **D4 -- Linux documentation:** [USB URB interval and completion context](https://docs.kernel.org/driver-api/usb/URB.html).
+- **D5 -- Linux documentation:** [input event types and synchronization loss](https://docs.kernel.org/input/event-codes.html).
+- **D6 -- Linux documentation:** [BPF kfunc lifetime/verifier contracts](https://docs.kernel.org/bpf/kfuncs.html), [sched_ext callbacks and policy scope](https://docs.kernel.org/scheduler/sched-ext.html).
+- **V1 -- Khronos, Vulkan:** [VK_NV_low_latency2](https://docs.vulkan.org/refpages/latest/refpages/source/VK_NV_low_latency2.html).
+- **V2 -- Khronos, Vulkan:** [vkLatencySleepNV and semaphore wait behavior](https://docs.vulkan.org/refpages/latest/refpages/source/vkLatencySleepNV.html).
 
 Historical Cake measurements remain in the
 [performance summary](PERFORMANCE_SUMMARY_2026-10-02.md). They must not be used

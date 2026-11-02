@@ -46,13 +46,13 @@ All values below are **emulated guest time**, not predictions for the 9800X3D.
 Frame metrics are equally weighted slot means. Confidence intervals use five
 paired block differences, not 60,000 supposedly independent frames.
 
-| Metric | Ordinary release | Annotated release | B − A | Approximate 95% paired interval |
+| Metric | Ordinary release | Annotated release | B - A | Approximate 95% paired interval |
 |---|---:|---:|---:|---:|
-| Frame p99 | 2,037,023 ns | 2,035,802 ns | −1,221 ns | −44,288 to +41,846 ns |
-| Frame p99.9 | 2,076,555 ns | 2,063,035 ns | −13,520 ns | −57,050 to +30,010 ns |
-| Mean adjacent-frame jitter | 17,332 ns | 19,813 ns | +2,481 ns | −21,138 to +26,100 ns |
-| Dependency-chain p99 | 345,216 ns | 346,170 ns | +954 ns | −174,198 to +176,106 ns |
-| Fixed-work completion | 17,397,861 ns | 17,426,182 ns | +28,321 ns (+0.163%) | −231,025 to +287,667 ns |
+| Frame p99 | 2,037,023 ns | 2,035,802 ns | -1,221 ns | -44,288 to +41,846 ns |
+| Frame p99.9 | 2,076,555 ns | 2,063,035 ns | -13,520 ns | -57,050 to +30,010 ns |
+| Mean adjacent-frame jitter | 17,332 ns | 19,813 ns | +2,481 ns | -21,138 to +26,100 ns |
+| Dependency-chain p99 | 345,216 ns | 346,170 ns | +954 ns | -174,198 to +176,106 ns |
+| Fixed-work completion | 17,397,861 ns | 17,426,182 ns | +28,321 ns (+0.163%) | -231,025 to +287,667 ns |
 
 Mean slot maximum was 2,145,020 versus 2,120,460 ns; 0.1% lows were 473.064
 versus 477.266 synthetic FPS. Their paired intervals also include zero.
@@ -60,12 +60,12 @@ Both arms completed all 3,000 frames per slot. The 500 FPS cap makes the tiny
 average-FPS/mean-frame differences unsuitable as throughput evidence. The
 fixed-work test supplies the separate completion-time endpoint.
 
-P99 block differences were +16,546, +35,550, +951, −57,250 and −1,902 ns.
-Fixed-work differences were +55,449, +351,975, +37,237, −197,611 and −105,445 ns.
+P99 block differences were +16,546, +35,550, +951, -57,250 and -1,902 ns.
+Fixed-work differences were +55,449, +351,975, +37,237, -197,611 and -105,445 ns.
 Neither result repeats consistently across blocks. Smaller instructions did
 not produce a distinguishable application-level speedup in this experiment.
 
-Host non-QEMU busy averaged 1.38% across one-second samples, range 0–6.40%;
+Host non-QEMU busy averaged 1.38% across one-second samples, range 0-6.40%;
 total host busy averaged 5.67%. These are whole-VM observations, including
 monitor/kernel work, not per-slot matched interference. Guest busy averaged
 41.17% for A and 32.34% for B, with a paired interval spanning zero for the
@@ -90,12 +90,12 @@ Separate component projections omit the two identical ENDBR64 instructions
 from each serial-gate trace, explicitly recording the omitted offsets. This
 does not assert that ENDBR64 has zero cost on the real machine.
 
-| Scoped component | Ordinary → annotated modeled uops | Modeled reciprocal throughput |
+| Scoped component | Ordinary -> annotated modeled uops | Modeled reciprocal throughput |
 |---|---:|---:|
-| Unary ABI stress fragment: argument setup, scalar op, four register saves/restores | 10 → 2 | CTZ 4 → 0.5 cycles; POPCNT/CLZ 4 → 0.75 cycles |
-| Cake serial gate, valid mask and true result; ENDBR64 excluded | 41 → 39 | 9.75 → 9.75 cycles |
-| First diagnostic histogram block | 26 → 30 | 6.5 → 6.5 cycles |
-| Second diagnostic histogram block, including preceding division | 29 → 31 | 18 → 18 cycles |
+| Unary ABI stress fragment: argument setup, scalar op, four register saves/restores | 10 -> 2 | CTZ 4 -> 0.5 cycles; POPCNT/CLZ 4 -> 0.75 cycles |
+| Cake serial gate, valid mask and true result; ENDBR64 excluded | 41 -> 39 | 9.75 -> 9.75 cycles |
+| First diagnostic histogram block | 26 -> 30 | 6.5 -> 6.5 cycles |
+| Second diagnostic histogram block, including preceding division | 29 -> 31 | 18 -> 18 cycles |
 
 These are model resource bounds, not measured operation latencies. In the
 serial-gate projection, fewer uops do not reduce the model's throughput
@@ -104,7 +104,7 @@ live; it is not a prediction that Cake drops from four cycles to half a cycle.
 
 Changing the model's alias assumption changes histogram simulation markedly:
 the first block's modeled total is about 7 cycles/iteration for either arm with
-`noalias=true`, but about 12 → 23 with `noalias=false`. These are alternate
+`noalias=true`, but about 12 -> 23 with `noalias=false`. These are alternate
 assumptions, not a measured confidence interval. LLVM's model does not determine
 cache hit/miss behavior or store-to-load forwarding, and does not model branch
 prediction. Trace branch outcomes were explicitly selected; no dynamic path

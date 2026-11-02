@@ -1,4 +1,4 @@
-# Release CTZ/CLZ build and quick screens — October 1, 2026
+# Release CTZ/CLZ build and quick screens: October 1, 2026
 
 The CTZ queue scan and CLZ histogram experiments are built into the ordinary
 optimized release binary as opt-in flags. All 28 live slots passed activation,
@@ -56,7 +56,7 @@ the mean of slot maximum frame times increased **1,449,200 ns**. Queue scanning
 also had 1.89 percentage points less estimated background CPU use. Its p99 block
 effects were -30,800 and -2,500 ns. These are mixed observations, not acceptance.
 
-Host busy ranged 63.82–72.17%; estimated non-appsim busy ranged 30.86–38.75%.
+Host busy ranged 63.82-72.17%; estimated non-appsim busy ranged 30.86-38.75%.
 UnrealEditor and Discord were left running. `noise_class` is
 `desktop_and_unreal_contaminated_diagnostic`; exact external-process CPU was
 not isolated (`external_cpu_avg_pct=null`). Non-appsim estimates include
@@ -72,10 +72,10 @@ per slot. Together they retained 498,939 frames with BPF runtime accounting on.
 - CTZ queue scan, probe off: dispatch **-0.11 ns/call**, block effects -4.21
   and +3.99 ns. Aggregate BPF CPU **+1.18%**. Frame p99 -600 ns and p99.9
   -41,850 ns, with 0.1% lows +28.46%. This did not repeat the earlier dispatch
-  saving. Non-appsim busy ranged 31.35–34.22%.
+  saving. Non-appsim busy ranged 31.35-34.22%.
 - CLZ histograms, probe on: stopping **-8.87 ns/call**, block effects -9.47
   and -8.26 ns. Aggregate BPF CPU **-5.60%**, but frame p99 +14,600 ns and
-  p99.9 +73,475 ns. Non-appsim busy ranged 31.86–36.05%, with the CLZ arm
+  p99.9 +73,475 ns. Non-appsim busy ranged 31.86-36.05%, with the CLZ arm
   averaging 1.04 points less. The callback saving repeats the prior finding;
   it optimizes diagnostics and is not a normal probe-off release saving.
 

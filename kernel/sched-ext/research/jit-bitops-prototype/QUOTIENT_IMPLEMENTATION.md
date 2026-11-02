@@ -1,4 +1,4 @@
-# Exact quotient implementation — 2026-09-30
+# Exact quotient implementation: 2026-09-30
 
 **October 1 update:** the combined patch is booted and Cake passed a 15-second
 live smoke with both flags and `CLZ/MULHI kernel`. Verifier loading and clean
@@ -56,7 +56,7 @@ The combined patch includes `bpf_clz64(x)` (zero returns 64) and `bpf_mulhi64(x,
 64 bits). The x86 JIT emits LZCNT when ABM/LZCNT is supported and otherwise
 retains the kernel call. MULHI emits `mov RAX,RDI; mul RSI; mov RAX,RDX`, using
 only caller-scratch registers. Normal BPF call argument/spill rules still apply.
-Portable kernel implementations and the extended boundary/random/R6–R9
+Portable kernel implementations and the extended boundary/random/R6-R9
 preservation selftests are included.
 
 Cake automatically selects these two kfuncs with `--division-free` when both
@@ -65,7 +65,7 @@ existing `--native-bitops` option independently selects CTZ/POPCNT.
 
 ## Arithmetic
 
-`src/bpf/quotient.bpf.h` implements Algorithm 2 from Möller and Granlund,
+`src/bpf/quotient.bpf.h` implements Algorithm 2 from Moller and Granlund,
 [*Improved division by invariant integers*](https://gmplib.org/~tege/division-paper.pdf).
 The 256-entry integer seed table and refinements produce the exact reciprocal
 `v = floor((2^128-1)/D) - 2^64` for normalized `D >= 2^63`.

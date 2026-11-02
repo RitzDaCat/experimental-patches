@@ -1,4 +1,4 @@
-# Exact reciprocal quotient experiment — registered 2026-09-30
+# Exact reciprocal quotient experiment: registered 2026-09-30
 
 Question: does a complete normalized reciprocal quotient reduce Cake's division
 cost while preserving every unsigned quotient and scheduling decision?
@@ -12,7 +12,7 @@ remainder correction; prove/test full-u64 arithmetic and slice equivalence;
 integrate normal build/CLI; provide native CLZ/MULHI kernel extension; validate
 builds and document exact manual test commands and outstanding live gates.
 
-The reciprocal follows Algorithm 2 of Möller and Granlund, *Improved division by
+The reciprocal follows Algorithm 2 of Moller and Granlund, *Improved division by
 invariant integers*: https://gmplib.org/~tege/division-paper.pdf. Quotient recovery
 specializes the reciprocal to a single-word numerator, with one remainder
 correction. The candidate contains no dynamic division, floating point, or

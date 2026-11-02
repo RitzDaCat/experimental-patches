@@ -1,4 +1,4 @@
-# KWin / DRM / VRR timing audit — 2026-07-15
+# KWin / DRM / VRR timing audit: 2026-07-15
 
 ## Engineering question
 

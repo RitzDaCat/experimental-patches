@@ -94,7 +94,7 @@ inverse into a neighboring programmable block. The two new entry points are
 The purple tint is acceptance step 8 returning a negative result. The color
 math was never validated against real hardware output before this test.
 
-### Hypothesis 1 — scalar normalization across a per-channel transform
+### Hypothesis 1: scalar normalization across a per-channel transform
 
 Rank: most likely.
 
@@ -108,7 +108,7 @@ gain therefore pushes green away from the red/blue pair. A green deficit reads
 as magenta or purple. This matches the failure axis the test protocol already
 named.
 
-### Hypothesis 2 — the real graph differs from the mock
+### Hypothesis 2: the real graph differs from the mock
 
 Rank: plausible, and cheap to test offline.
 
@@ -130,7 +130,7 @@ programmable matrix
 No record in this repository confirms that the live NVIDIA `Full` graph has
 that exact shape.
 
-### Hypothesis 3 — Night Light applied twice
+### Hypothesis 3: Night Light applied twice
 
 Rank: ruled out by direction.
 

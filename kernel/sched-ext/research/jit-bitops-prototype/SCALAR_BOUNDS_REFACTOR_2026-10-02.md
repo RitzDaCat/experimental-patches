@@ -42,9 +42,9 @@ do not stack the two complete patches. Neither patch was installed on the host.
 
 | Operation | Any input | Proven nonzero input |
 |---|---|---|
-| CTZ64 | 0–64; zero returns 64 | 0–63 |
-| CLZ64 | 0–64; zero returns 64 | 0–63 |
-| POPCNT64 | 0–64, including 64 for all bits set | Still 0–64 |
+| CTZ64 | 0-64; zero returns 64 | 0-63 |
+| CLZ64 | 0-64; zero returns 64 | 0-63 |
+| POPCNT64 | 0-64, including 64 for all bits set | Still 0-64 |
 
 Only the three exact function IDs in `btf_vmlinux` receive these facts.
 Unrelated helpers and MULHI retain their existing contracts. Before caller
@@ -117,17 +117,17 @@ range-preserving variant adds three stack accesses versus prior selective
 fastcall, even though its overall instruction count falls by one. Specializing
 recovers two of those accesses, but still has one more than prior selective.
 
-With eight cores / sixteen threads, ordinary → specialized native-bitops:
+With eight cores / sixteen threads, ordinary -> specialized native-bitops:
 
 | Callback | Native instructions | Native bytes | BPF stack accesses |
 |---|---:|---:|---:|
-| select_cpu | 1,444 → **1,418** | 6,087 → **5,961** | 80 → **67** |
-| enqueue | 1,963 → **1,956** | 8,229 → **8,188** | 121 → **120** |
-| dispatch | 1,177 → **1,173** | 4,834 → **4,813** | 76 → **74** |
-| stopping | 306 → 306 | 1,269 → 1,269 | 32 → 32 |
+| select_cpu | 1,444 -> **1,418** | 6,087 -> **5,961** | 80 -> **67** |
+| enqueue | 1,963 -> **1,956** | 8,229 -> **8,188** | 121 -> **120** |
+| dispatch | 1,177 -> **1,173** | 4,834 -> **4,813** | 76 -> **74** |
+| stopping | 306 -> 306 | 1,269 -> 1,269 | 32 -> 32 |
 
 Separately, diagnostic CLZ histograms (`--native-hist --toggle probe=1`) drop
-two masks: stopping 493 → **491 instructions**, 2,044 → **2,038 bytes**, unchanged
+two masks: stopping 493 -> **491 instructions**, 2,044 -> **2,038 bytes**, unchanged
 46 stack accesses. This is a probe path, not the normal gaming release path.
 Specialized histogram runs additionally enable bitops and must not be compared
 as a histogram-only change in other callbacks.

@@ -62,8 +62,8 @@ Re-reading the r14 capture
   (`20260722-211711-dark-and-darker-policy-off-correct`) shows correct colors
   with the pipeline off.
 
-So on real hardware the full path — early check, assignment search, blob
-programming, atomic validation, flip — completes. The blocker is not
+So on real hardware the full path -- early check, assignment search, blob
+programming, atomic validation, flip -- completes. The blocker is not
 acceptance. It is that the programmed hardware transform computes a visibly
 different result than the reference `ColorPipeline`.
 
@@ -77,7 +77,7 @@ The incident and all prior probes were on 610.43.03. The system now runs
 
 With hypothesis 2 dead, the candidates are:
 
-### H1a — RESOLVED by driver source: PQ domain convention of the mandatory CSC stages (confirmed as the dominant risk)
+### H1a: RESOLVED by driver source: PQ domain convention of the mandatory CSC stages (confirmed as the dominant risk)
 
 The vendored NVIDIA open driver source
 (`reference/upstream/nvidia-open-610.43.03/kernel-open/nvidia-drm/nvidia-drm-color-pipeline.c`)
@@ -92,13 +92,13 @@ settles where the mismatch lives:
    the UAPI convention via an implicit degamma multiplier (`pq_implicit_mult`).
    No bridge exists for the mandatory CSC0LUT/CSC1LUT stages.
 
-Patch 0016 compensates the mandatory stages under the UAPI (×125) convention.
-If the fixed stages actually apply the internal (×1.0) convention, the composed
-transform is wrong by a full PQ-domain factor — enormous in dark tones where PQ
+Patch 0016 compensates the mandatory stages under the UAPI (x125) convention.
+If the fixed stages actually apply the internal (x1.0) convention, the composed
+transform is wrong by a full PQ-domain factor -- enormous in dark tones where PQ
 is steepest.
 
 The offline harness quantified both worlds against the probed Full graph with
-hardware-faithful quantization (S31.32→S15.16 matrix truncation per
+hardware-faithful quantization (S31.32->S15.16 matrix truncation per
 `ctm_val_to_csc_val`, UNORM16 TMO surface, FP16 ILUT surface):
 
 | hardware \ KWin assumes | 125 (UAPI) | 1 (internal) |
@@ -111,11 +111,11 @@ convention; a mismatch is catastrophically loud. This also retroactively
 downgrades H1a/H1b/H4 below: the matcher's range bookkeeping is provably
 self-consistent; only the untestable hardware convention remains open.
 
-### H1b/H4 and the scalar-envelope family — DOWNGRADED by harness evidence
+### H1b/H4 and the scalar-envelope family: DOWNGRADED by harness evidence
 
 The harness runs the real patched matcher end-to-end. Under a matched
 convention the composed hardware transform matches KWin's reference pipeline
-to ≤ 0.6 nits of 420 across a 48³ grid including Night Light, so scalar-range
+to <= 0.6 nits of 420 across a 48^3 grid including Night Light, so scalar-range
 bookkeeping, clamp insertion, and matrix placement produce no measurable
 residual in KWin's own model. They remain relevant only if a future driver
 changes graph semantics.
@@ -128,11 +128,11 @@ changes graph semantics.
 - **H5 PQ-125 domain (80 vs 125)**: fixed in patch 0016
   (`namedTransferFunctionScale()` returns 125.0); superseded by patch 0021.
 - **H6 LUT quantization**: modeled explicitly in the harness (FP16 ILUT,
-  UNORM16 TMO, S15.16 matrices); contributes ≤ 0.6 nits, not a hue cast.
+  UNORM16 TMO, S15.16 matrices); contributes <= 0.6 nits, not a hue cast.
 
 ## 4. What was built (2026-08-23, this session)
 
-### Offline harness — `tools/colorscanout_harness/`
+### Offline harness: `tools/colorscanout_harness/`
 
 Links KWin's installed core color math (`libkwin`) and compiles the REAL
 patched matcher (`reference/harness/kwin/drm_colorop.cpp` = upstream 6.7.4 +
@@ -155,7 +155,7 @@ g++ -std=c++20 -O2 -fPIC \
 KWIN_DRM_NVIDIA_CSC_PQ_SCALE=1 /tmp/colorscanout_harness 1   # internal-convention pair
 ```
 
-### Patch 0021 — runtime-selectable mandatory CSC PQ scale
+### Patch 0021: runtime-selectable mandatory CSC PQ scale
 
 `patches/0021-selectable-mandatory-csc-pq-scale.patch`: the PQ scale used for
 the two MANDATORY named-curve stages becomes runtime-selectable via
@@ -168,26 +168,26 @@ The whole series applies clean and byte-compares against the patched overlay
 
 ## 5. Plan
 
-### Step 1 — DONE: offline numerical harness against the proven-real graph
+### Step 1: DONE: offline numerical harness against the proven-real graph
 
 See section 4. The matcher's range bookkeeping is exonerated; the only open
 variable is the hardware's mandatory-stage convention, which is unknowable
 offline by construction (fixed function, no readback).
 
-### Step 2 — DONE in principle: convention made switchable instead of guessed
+### Step 2: DONE in principle: convention made switchable instead of guessed
 
 Patch 0021 turns the untestable assumption into a single controlled experiment
 variable with a fail-safe default.
 
-### Step 3 — live discrimination test (one logout, three states)
+### Step 3: live discrimination test (one logout, three states)
 
 With `KWIN_DRM_USE_COLOR_PIPELINE` re-enabled and the capture pattern from
 `tools/color-validation-pattern.ppm` fullscreen on DP-2:
 
-1. control: pipeline off (stock composition) — correct reference colors;
-2. `KWIN_DRM_NVIDIA_CSC_PQ_SCALE=125` — if colors match control, the hardware
+1. control: pipeline off (stock composition) -- correct reference colors;
+2. `KWIN_DRM_NVIDIA_CSC_PQ_SCALE=125` -- if colors match control, the hardware
    follows the UAPI convention and patch 0021 is done;
-3. `KWIN_DRM_NVIDIA_CSC_PQ_SCALE=1` — if THIS matches control instead, set it
+3. `KWIN_DRM_NVIDIA_CSC_PQ_SCALE=1` -- if THIS matches control instead, set it
    persistently; either way exactly one state is visually indistinguishable
    from control and that state ships.
 
@@ -195,7 +195,7 @@ Then run the existing validation ladder (VRR uncapped, native HDR, SDR mode,
 cursor/overlay fallback, alt-tab/lock/DPMS) plus reason-code histograms and
 nanosecond render-stage deltas for the accepted-scanout case.
 
-### Step 4 — coverage beyond color ("all games and situations")
+### Step 4: coverage beyond color ("all games and situations")
 
 Once correctness holds, enumerate the remaining non-color rejection classes
 from telemetry reason codes and size each before touching anything: windowed

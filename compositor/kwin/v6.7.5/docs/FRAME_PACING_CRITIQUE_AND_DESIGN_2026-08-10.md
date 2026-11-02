@@ -115,14 +115,14 @@ request when one *should* be shown, but nothing tells the client when to
 *start*. That missing hint is the whole problem, and no staged protocol covers
 it.
 
-### Tier 1 — fix the wait (small, independent, upstreamable)
+### Tier 1: fix the wait (small, independent, upstreamable)
 
 Replace both yield loops with `clock_nanosleep(..., TIMER_ABSTIME, ...)`.
 Removes the core burn and the scheduling slop. Roughly thirty lines, no
 protocol work, benefits every user of the layer immediately. This belongs
 upstream in their repo, not here.
 
-### Tier 2 — publish the deadline (the real fix)
+### Tier 2: publish the deadline (the real fix)
 
 A compositor-to-client hint carrying, per surface:
 
@@ -134,7 +134,7 @@ The client then starts its frame at `present - compositorCost - ownRender -
 margin`. The jitter probe, the EWMA, and the tuned gain all become
 unnecessary, because the estimated term is replaced by a measured one.
 
-### Tier 3 — what only this project can supply
+### Tier 3: what only this project can supply
 
 The hint is only as good as its numbers. Patches 0003 through 0006 and 0009
 already learn the wake reserve and render budget per output and per
@@ -146,7 +146,7 @@ deriving.
 
 | Tier | Removes | Convergence | App-specific code |
 | --- | --- | --- | --- |
-| Today | — | ~100 frames | quirk flag needed |
+| Today | - | ~100 frames | quirk flag needed |
 | 1 | core burn, wait slop | unchanged | unchanged |
 | 2 | jitter probe, EWMA, tuned gain | immediate | most cases resolved |
 | 3 | remaining estimate error | immediate | reserve is measured, not guessed |

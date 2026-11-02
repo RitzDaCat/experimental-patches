@@ -26,8 +26,8 @@ algorithm are outside this first prototype.
 | `kernel/bpf/helpers.c` | Adds and registers `bpf_ctz64` and `bpf_popcnt64` as scalar kfuncs with portable implementations. CTZ of zero returns 64; POPCNT returns 0..64. |
 | `include/linux/filter.h` | Declares the functions under CONFIG_BPF_SYSCALL so the x86 JIT can identify their addresses. |
 | `arch/x86/net/bpf_jit_comp.c` | Recognizes those two kfunc targets during call emission. Uses BMI1/POPCNT feature checks and emits `TZCNT RAX,RDI` / `POPCNT RAX,RDI`; unsupported cases retain ordinary calls. |
-| `tools/testing/selftests/bpf/progs/scalar_bitops.c` — new | BPF boundary, randomized comparison, and explicit R6–R9 preservation tests. |
-| `tools/testing/selftests/bpf/prog_tests/scalar_bitops.c` — new | Registers the test programs with the kernel BPF selftest harness. |
+| `tools/testing/selftests/bpf/progs/scalar_bitops.c` -- new | BPF boundary, randomized comparison, and explicit R6-R9 preservation tests. |
+| `tools/testing/selftests/bpf/prog_tests/scalar_bitops.c` -- new | Registers the test programs with the kernel BPF selftest harness. |
 
 Apply [0001](0001-bpf-x86-inline-scalar-bitops.patch) to a kernel source tree.
 This is the patch to select in CachyOS Kernel Manager. Application to the exact

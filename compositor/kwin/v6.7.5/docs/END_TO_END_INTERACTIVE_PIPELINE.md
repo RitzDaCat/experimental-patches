@@ -159,7 +159,7 @@ That changes thread-safety and device-add ordering, so it is not an acceptable
 nanosecond optimization without a detached immutable event representation or a
 libinput-thread ownership redesign.
 
-The candidate redesign is two-stage, not merely “replace the mutex”:
+The candidate redesign is two-stage, not merely "replace the mutex":
 
 ```mermaid
 flowchart LR

@@ -64,7 +64,7 @@ This is the single highest-value anti-stuck item, and it is the same work
 scoped in `docs/LOW_LATENCY_LAYER_COMPARISON_2026-08-10.md` section 5a.
 
 Today the five values are `static const`, read once at library load. A tester
-whose session went wrong must edit a file, log out, and log back in — which is
+whose session went wrong must edit a file, log out, and log back in -- which is
 exactly the moment they are least able to, because the thing that is wrong is
 the compositor.
 

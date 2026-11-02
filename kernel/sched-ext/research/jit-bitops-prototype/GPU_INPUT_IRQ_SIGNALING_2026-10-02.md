@@ -1,4 +1,4 @@
-# GPU, input and IRQ signaling implementation — 2026-10-02
+# GPU, input and IRQ signaling implementation: 2026-10-02
 
 The research implementation is built and has passed the ordinary-kernel VM
 contract and Cake activation checks. It carries input/fence wake causes through

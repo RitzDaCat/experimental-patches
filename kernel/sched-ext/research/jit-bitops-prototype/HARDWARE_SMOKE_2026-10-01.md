@@ -1,4 +1,4 @@
-# Combined scalar patch: live Cake smoke — 2026-10-01
+# Combined scalar patch: live Cake smoke: 2026-10-01
 
 **Passed on this host:** verifier loading, native scalar-path selection, a
 15-second Cake run and clean restoration to native scheduling. This was a

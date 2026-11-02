@@ -1,4 +1,4 @@
-# CTZ/POPCNT JIT prototype — registered 2026-09-29
+# CTZ/POPCNT JIT prototype: registered 2026-09-29
 
 Question: can explicit scalar bitops, inlined by the x86 BPF JIT, reduce actual
 BPF execution time without changing results or Cake scheduling decisions?

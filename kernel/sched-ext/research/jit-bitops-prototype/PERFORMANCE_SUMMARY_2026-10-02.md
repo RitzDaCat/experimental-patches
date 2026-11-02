@@ -13,13 +13,13 @@ all estimates of one kernel-patch effect, and their percentages must not be adde
 
 Later follow-up: [the direct DSQ index is now implemented and simulated](DSQ_DIRECT_INDEX_2026-10-02.md).
 Its six ordinary-kernel VM configurations and 20 simulation slots passed;
-emulated wall time changed −0.023%, with an interval spanning improvement and
+emulated wall time changed -0.023%, with an interval spanning improvement and
 regression. Hardware benefit remains unmeasured and the debug gate is open.
 The chart pack below retains its original measurement snapshot.
 
 ## Charts and downloadable data
 
-- All five shareable PNGs, ZIP (`scx_cake_bench/runs/cake_performance_summary_20261002T151939Z/scx_cake_performance_pngs.zip`, local) (2,250 × 1,500 pixels each, labeled with scope and limitations)
+- All five shareable PNGs, ZIP (`scx_cake_bench/runs/cake_performance_summary_20261002T151939Z/scx_cake_performance_pngs.zip`, local) (2,250 x 1,500 pixels each, labeled with scope and limitations)
 - All five charts in one self-contained HTML page (`scx_cake_bench/runs/cake_performance_summary_20261002T151939Z/charts.html`, local)
 - Five-page chart PDF (`scx_cake_bench/runs/cake_performance_summary_20261002T151939Z/cake_performance_charts.pdf`, local)
 - Metric comparisons, CSV (`scx_cake_bench/runs/cake_performance_summary_20261002T151939Z/metrics.csv`, local)
@@ -30,7 +30,7 @@ Charts are also available as individual PNG and editable SVG files beside the
 PDF. Negative time deltas mean faster; positive FPS deltas mean higher throughput
 only when the workload actually measures throughput. Here, appsim is paced:
 its approximately 2,079 average synthetic FPS is not an uncapped game FPS result.
-1 µs = 1,000 ns. Jitter here is mean absolute adjacent-frame-time difference,
+1 us = 1,000 ns. Jitter here is mean absolute adjacent-frame-time difference,
 not mouse-to-display latency or scheduler wake jitter.
 
 ## 1. Most promising frame-time screen
@@ -41,15 +41,15 @@ eight 15-second release slots produced this result:
 
 | Metric | Before | After | Observed change |
 |---|---:|---:|---:|
-| Frame p99 | 655,150 ns | 633,300 ns | **−21,850 ns / −3.34%** |
-| Frame p99.9 | 722,950 ns | 668,975 ns | **−53,975 ns / −7.47%** |
-| Mean adjacent-frame jitter | 91,333 ns | 84,902 ns | **−6,431 ns / −7.04%** |
+| Frame p99 | 655,150 ns | 633,300 ns | **-21,850 ns / -3.34%** |
+| Frame p99.9 | 722,950 ns | 668,975 ns | **-53,975 ns / -7.47%** |
+| Mean adjacent-frame jitter | 91,333 ns | 84,902 ns | **-6,431 ns / -7.04%** |
 | 0.1% low synthetic FPS | 1,341.28 | 1,458.15 | **+8.71%** |
-| Mean of slot maximum frame times | 828,700 ns | 823,100 ns | −5,600 ns / −0.68% |
+| Mean of slot maximum frame times | 828,700 ns | 823,100 ns | -5,600 ns / -0.68% |
 
-Both paired blocks improved p99: **−22,950 and −20,750 ns**. This is a useful
+Both paired blocks improved p99: **-22,950 and -20,750 ns**. This is a useful
 positive result worth retaining. It does not prove that four removed instructions
-alone caused a 21.85 µs difference. There are only two blocks, about 49% estimated
+alone caused a 21.85 us difference. There are only two blocks, about 49% estimated
 non-appsim CPU activity, no independent holdout, and no real game/GPU/input test.
 BPF accounting was disabled throughout, so these are normal release frame results.
 
@@ -67,12 +67,12 @@ simulated frames. This was a more stable host load than the first quick screen.
 
 | Comparison against portable default | Observed change | Exploratory 95% interval |
 |---|---:|---:|
-| Bitops enqueue callback | **−5.87 ns/call / −2.59%** | −10.67 to −1.44 ns |
-| Bitops running callback | **−0.83 ns/call / −2.43%** | −1.35 to −0.05 ns |
-| Bitops total BPF CPU time | −0.47% | −1.13% to +0.16% |
-| Bitops frame p99 | −400 ns | −1,730 to +530 ns |
+| Bitops enqueue callback | **-5.87 ns/call / -2.59%** | -10.67 to -1.44 ns |
+| Bitops running callback | **-0.83 ns/call / -2.43%** | -1.35 to -0.05 ns |
+| Bitops total BPF CPU time | -0.47% | -1.13% to +0.16% |
+| Bitops frame p99 | -400 ns | -1,730 to +530 ns |
 | Division-free total BPF CPU time | **+5.81%** | +3.88% to +7.80% |
-| Division-free frame p99 | +920 ns | −2,090 to +3,670 ns |
+| Division-free frame p99 | +920 ns | -2,090 to +3,670 ns |
 
 Enqueue and running were cheaper in four of five blocks. Those are small,
 measured favorable callback results; the aggregate CPU and frame intervals
@@ -131,13 +131,13 @@ work in actual loaded release code:
 
 | Static measure | Baseline | Specialized | Change |
 |---|---:|---:|---:|
-| select_cpu native instructions | 1,444 | 1,418 | −26 / −1.80% |
-| select_cpu BPF stack accesses | 80 | 67 | **−13 / −16.25%** |
-| select_cpu native bytes | 6,087 | 5,961 | −126 / −2.07% |
-| enqueue native instructions | 1,963 | 1,956 | −7 |
-| dispatch native instructions | 1,177 | 1,173 | −4 |
+| select_cpu native instructions | 1,444 | 1,418 | -26 / -1.80% |
+| select_cpu BPF stack accesses | 80 | 67 | **-13 / -16.25%** |
+| select_cpu native bytes | 6,087 | 5,961 | -126 / -2.07% |
+| enqueue native instructions | 1,963 | 1,956 | -7 |
+| dispatch native instructions | 1,177 | 1,173 | -4 |
 | stopping native instructions, probe off | 306 | 306 | unchanged |
-| Typed DSQ lookup own stack bytes | 96 | 32 | **−64 / −66.67%** |
+| Typed DSQ lookup own stack bytes | 96 | 32 | **-64 / -66.67%** |
 
 The Cake comparisons use the same patched kernel and 8-core/16-thread VM.
 DSQ comparison is a separate kernel change. Its generic comparison becomes a
@@ -158,18 +158,18 @@ rejects both. Negative programs were never executed.
 
 | Experiment | What happened | Learning |
 |---|---|---|
-| Initial bitops quick screen | p99 −49,250 ns, BPF CPU −1.95%; high noise | The large first effect was not reproduced by the five-repeat screen |
+| Initial bitops quick screen | p99 -49,250 ns, BPF CPU -1.95%; high noise | The large first effect was not reproduced by the five-repeat screen |
 | Later normal-release bitops screen | p99 +15,375 ns; mixed blocks | No consistent frame benefit across host conditions |
-| CTZ queue scanning | p99 −16,650 ns versus bitops, but mean slot maximum +1,449,200 ns | Faster common-path observations can coexist with worse rare delays |
-| CLZ diagnostic histograms | stopping −8.21 ns/call initially, −8.87 ns/call on follow-up | Repeated diagnostic-path savings; probe-off release does not run this path |
+| CTZ queue scanning | p99 -16,650 ns versus bitops, but mean slot maximum +1,449,200 ns | Faster common-path observations can coexist with worse rare delays |
+| CLZ diagnostic histograms | stopping -8.21 ns/call initially, -8.87 ns/call on follow-up | Repeated diagnostic-path savings; probe-off release does not run this path |
 | Selective CTZ/POPCNT fastcall | Avoids the all-unary header's extra CLZ histogram instructions | Annotate selectively; a smaller local operation can change allocation elsewhere |
 | Outlining portable fallbacks | Native select code grew | Source simplification/inlining intuition is insufficient |
 | Removing masks without LLVM range information | Select code grew | Compiler and verifier must both know the valid range |
-| Generic wide CTZ ring prototype | Empty 1,024-CPU ring: 1,023→16 loop iterations; 2,487,612 finite checks passed | Useful sparse-scan mechanism; not integrated or a measured benefit on this 16-thread host |
-| Fastcall QEMU fixed-work test | +28,321 ns completion; interval −231,025 to +287,667 ns | No speedup established; guest timing is not a 9800X3D prediction |
-| Quiet-start compiler comparison | select −0.337 ns; interval −4.136 to +3.461 ns; later Blender interference | Not a clean hardware confirmation of the newer kernel fastcall patch |
-| Historical perf attribution | Analyzer included unrelated BPF in “Cake time” | Corrected denominator before using old profiles for prioritization |
-| Direct-index DSQ table, later follow-up | Six ordinary-kernel VM configurations and 20/20 simulation slots passed; emulated wall time −0.023%, inconclusive | Implemented; hardware benefit unmeasured, debug gate open; see [report](DSQ_DIRECT_INDEX_2026-10-02.md) |
+| Generic wide CTZ ring prototype | Empty 1,024-CPU ring: 1,023->16 loop iterations; 2,487,612 finite checks passed | Useful sparse-scan mechanism; not integrated or a measured benefit on this 16-thread host |
+| Fastcall QEMU fixed-work test | +28,321 ns completion; interval -231,025 to +287,667 ns | No speedup established; guest timing is not a 9800X3D prediction |
+| Quiet-start compiler comparison | select -0.337 ns; interval -4.136 to +3.461 ns; later Blender interference | Not a clean hardware confirmation of the newer kernel fastcall patch |
+| Historical perf attribution | Analyzer included unrelated BPF in "Cake time" | Corrected denominator before using old profiles for prioritization |
+| Direct-index DSQ table, later follow-up | Six ordinary-kernel VM configurations and 20/20 simulation slots passed; emulated wall time -0.023%, inconclusive | Implemented; hardware benefit unmeasured, debug gate open; see [report](DSQ_DIRECT_INDEX_2026-10-02.md) |
 
 Repeatability chart (`scx_cake_bench/runs/cake_performance_summary_20261002T151939Z/05_repeatability.png`, local)
 shows the block effects from separate frame screens. The experiments differ

@@ -37,7 +37,7 @@ Break it into four segments:
 | Game simulation and render | Proton, game, GPU | partly (frame telemetry) |
 | Scanout and panel response | DRM, monitor | no (needs hardware rig) |
 
-## 3. Tier 1 — in-band software proxy
+## 3. Tier 1: in-band software proxy
 
 Available on this machine now. `wayland-info` reports:
 
@@ -66,7 +66,7 @@ Note the client is not the game. It removes game simulation from the
 measurement, which makes it a clean compositor benchmark and a poor whole-stack
 number. Both are useful; do not conflate them.
 
-## 4. Tier 2 — hardware ground truth
+## 4. Tier 2: hardware ground truth
 
 Required for a real Windows comparison, because the missing segments differ
 between operating systems.
@@ -83,7 +83,7 @@ This measures the identical physical path on Linux and Windows. Nothing in the
 operating system can bias it.
 
 Open-hardware latency testers of this design exist. Verify the current name,
-availability, and clock resolution of any specific tool before adopting it —
+availability, and clock resolution of any specific tool before adopting it --
 do not cite one from memory.
 
 ## 5. The Windows baseline

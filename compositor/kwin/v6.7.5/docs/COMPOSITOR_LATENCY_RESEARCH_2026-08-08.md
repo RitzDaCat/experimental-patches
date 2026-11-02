@@ -1,7 +1,7 @@
 # Compositor latency research: routes to a faster KWin
 
 Date: 2026-08-08
-Method: five research tracks — compositor frame scheduling, Windows DWM
+Method: five research tracks -- compositor frame scheduling, Windows DWM
 and Reflex, Wayland/DRM latency protocols, low-latency systems patterns, and a
 full audit of this repository's own measured numbers.
 
@@ -14,7 +14,7 @@ independent records agree.
 
 | Source | Finding |
 | --- | --- |
-| farnoy.dev LDAT study | KWin predicts 11.35 ms render, actual 2.06 ms — 9.23 ms slack at p50 |
+| farnoy.dev LDAT study | KWin predicts 11.35 ms render, actual 2.06 ms -- 9.23 ms slack at p50 |
 | This repository | stock composited early-start budget about 6.46 ms; DRM safety 2.461 ms untouched |
 | KWin source | `RenderJournal::result()` returns `m_result + m_variance * 2` |
 
@@ -34,7 +34,7 @@ window.
 | 4 | `wp_commit_timing_v1` | unmeasured | **KWin does not implement it** |
 | 5 | Direct scanout | 0.29-1.6 ms | blocked by the color transform |
 | 6 | Adaptive wake margin | about 0.98 ms | ON, never measured live |
-| 7 | Lock-free input queue | 15 ns | noise — do not build it |
+| 7 | Lock-free input queue | 15 ns | noise -- do not build it |
 
 ## 3. The gap worth attacking: commit-timing-v1
 
@@ -47,7 +47,7 @@ Hyprland, COSMIC, Mir, Wayfire, Muffin, Jay, Cage.
 
 What it does: lets a client say "present this content as closely as possible to,
 but not before, time T" in the presentation clock domain. That is precisely the
-client-side answer to an over-conservative compositor deadline — the client
+client-side answer to an over-conservative compositor deadline -- the client
 renders late and still hits the target vblank.
 
 The Vulkan counterpart is already landing: `VK_EXT_present_timing` merged into
@@ -71,7 +71,7 @@ of extra margin.
 
 Both are correctness defects in the estimator, not tuning constants.
 
-## 5. Windows comparison — the gap is smaller than assumed
+## 5. Windows comparison: the gap is smaller than assumed
 
 One rigorous same-hardware study exists: farnoy.dev, using a Teensy flashed as a
 USB HID mouse plus a light sensor, hundreds of samples per condition.
@@ -89,7 +89,7 @@ repository's own work, so it is not independent validation of these patches.
 
 Windows' structural advantage is Independent Flip and multi-plane overlay, which
 remove the composition frame entirely. Linux's equivalent is direct scanout plus
-tearing control — both already exist.
+tearing control -- both already exist.
 
 ## 6. The ceiling nobody should ignore
 
@@ -107,19 +107,19 @@ compositor is worth 1-4 ms here, while render-queue control is worth more.
 | --- | --- | --- |
 | `PROTON_VKD3D_LOWLATENCY` / `PROTON_DXVK_LOWLATENCY` | Reflex-class latency sleep; `proton` script lines 1871-1872 | Steam launch option, game restart |
 | `LOW_LATENCY_LAYER` | implicit Vulkan layer; `proton` line 1949-1951 | same |
-| `KWIN_DRM_OVERRIDE_SAFETY_MARGIN` | replaces the `vblankTime + 1000 µs` base; farnoy used `-150` | logout |
+| `KWIN_DRM_OVERRIDE_SAFETY_MARGIN` | replaces the `vblankTime + 1000 us` base; farnoy used `-150` | logout |
 | Tearing | `AllowTearing` defaults true; game must request async present | in-game vsync off |
 
 `dxvk-low-latency/` and `vkd3d-low-latency/` are both present in the installed
-`proton-cachyos-slr`. Helldivers 2 has no Steam launch options set — checked by
+`proton-cachyos-slr`. Helldivers 2 has no Steam launch options set -- checked by
 grep for `LaunchOptions` near appid 553850.
 
 ## 8. What to skip, with reasons
 
 - **Lock-free SPSC queue for throughput.** Measured difference versus an
-  uncontended mutex is about 15 ns per event. At 1 kHz that is 15 µs per second.
+  uncontended mutex is about 15 ns per event. At 1 kHz that is 15 us per second.
   Noise against a 4.167 ms frame.
-- **`isolcpus` / `nohz_full` on a gaming desktop.** Wins about 18 µs of jitter
+- **`isolcpus` / `nohz_full` on a gaming desktop.** Wins about 18 us of jitter
   and costs the game a core.
 - **USB IRQ affinity pinning.** Every source found was a Windows enthusiast
   forum using LatencyMon, with contradictory advice. No Linux measurement.
@@ -137,7 +137,7 @@ the container out under the lock and processing outside it.
 1. Input-to-photon, anywhere in this project.
 2. Any stock-versus-patched A/B. Every trace in `artifacts/results/` is a
    patched build.
-3. The 0.7-0.9 ms wake saving — derived, never observed.
+3. The 0.7-0.9 ms wake saving -- derived, never observed.
 4. Eleven of eighteen patches have no measurement behind them.
 
 Until item 1 exists, every number in this document is someone else's

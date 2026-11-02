@@ -1,4 +1,4 @@
-# Cake instruction and kernel-service research — 2026-10-02
+# Cake instruction and kernel-service research: 2026-10-02
 
 The strongest new experiment is an existing sched_ext DSQ comparison patch,
 backported and built here. It removes generic comparison work from kernel
@@ -16,7 +16,7 @@ were not changed. All kernel candidates remain under `target/`.
 Usama Arif's September 21 patch supplies a typed comparator for the existing
 DSQ hash table. Tejun Heo reports applying it to `sched_ext/for-7.4`, with the
 function signature joined. The retained CachyOS 7.2.8 source lacks it. The
-author's reported 2.9× result is a same-kernel **DSQ lookup microbenchmark using
+author's reported 2.9x result is a same-kernel **DSQ lookup microbenchmark using
 scx_layered queue IDs**, not a Cake or whole-scheduler speedup.
 [Original submission](https://lists.openwall.net/linux-kernel/2026/09/21/2444),
 [maintainer acceptance](https://lists.openwall.net/linux-kernel/2026/09/21/2516).
@@ -30,7 +30,7 @@ experiments also show that enabling more operation families can worsen results.
 The useful research direction is preserving verifier semantics while improving
 operand placement, with selective adoption. We have not built or reproduced
 Kops, and this review did not establish a usable public implementation artifact.
-[Preprint, sections 4–7](https://arxiv.org/html/2606.24213v1).
+[Preprint, sections 4-7](https://arxiv.org/html/2606.24213v1).
 
 The [official kfunc documentation](https://docs.kernel.org/bpf/kfuncs.html)
 describes registration and interface constraints. The
@@ -78,7 +78,7 @@ The uncommon nested-bucket lookup still calls `rht_bucket_nested`.
 The comparison loop also loses runtime key-length/key-offset loads. A runtime
 hash-node offset load remains. The change does not remove queue migration,
 locking, scheduler association, RCU, or accounting costs. The standalone
-comparator also occupies code for generic hash-table callers; 301→297 is not
+comparator also occupies code for generic hash-table callers; 301->297 is not
 a claim about total kernel text size.
 
 The backport applies with zero fuzz and produces a byte-identical copy of the
@@ -152,7 +152,7 @@ runtime scheduler instruction. Keep it in every return-bounds variant.
 ## 5. Corrected historical profile attribution
 
 The September 27 `perfmap.py` selected every `bpf_prog_*` frame while labeling
-the denominator “Cake time.” Its reports include unrelated system BPF programs
+the denominator "Cake time." Its reports include unrelated system BPF programs
 such as `restrict_filesystems`. The [corrected analysis copy](perfmap-cake-only.py)
 restricts frames to `cake_` names and exports all leaf counts, not just rounded
 top-50 rows. The archived originals remain unchanged.

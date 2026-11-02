@@ -88,7 +88,7 @@ The [new investigation](INSTRUCTION_PASS_2026-10-02.md) adds selective fastcall,
 a wider CTZ scan prototype, BLSR/ANDN compiler probes and measured 9800X3D scalar
 chain costs. 36 VM loads, 10 activation checks and 48 host slots passed. Host
 timing remains inconclusive under recorded Unreal/Blender interference; no
-default changed. The [cost ladder §10](https://github.com/RitzDaCat/scx/blob/RitzDaCat/scx_cake-nightly/scheds/rust/scx_cake/docs/AUDIT_OPERATION_COST_2026-09-15.md#10-local-hardware-costs-and-further-instruction-passes-2026-10-02)
+default changed. The [cost ladder section 10](https://github.com/RitzDaCat/scx/blob/RitzDaCat/scx_cake-nightly/scheds/rust/scx_cake/docs/AUDIT_OPERATION_COST_2026-09-15.md#10-local-hardware-costs-and-further-instruction-passes-2026-10-02)
 separates core instruction measurements from complete callback prices.
 
 **2026-10-01 fastcall simulation: 20/20 slots passed.**

@@ -1,4 +1,4 @@
-# Cake scalar instruction review and additional usage experiments — 2026-10-01
+# Cake scalar instruction review and additional usage experiments: 2026-10-01
 
 **Two new uses produced callback savings worth confirming: CTZ queue scans and
 CLZ diagnostic histograms. MULHI vtime remains inconclusive.** All 32 live
@@ -58,7 +58,7 @@ conditionally request a second quotient with the same divisor and recompute
 the reciprocal; it already reuses the first quotient when the dividend matches.
 That conditional frequency has not been instrumented.
 
-The Möller–Granlund paper provides the reciprocal algorithm and discusses
+The Moller-Granlund paper provides the reciprocal algorithm and discusses
 amortization and single-division results on older processors. Those measurements
 do not establish a win for this single-word BPF implementation on Zen 5.
 [Improved division by invariant integers](https://gmplib.org/~tege/division-paper.pdf).
@@ -87,7 +87,7 @@ relocation annotations; the corrected count is 94.
 All Cake quotient divisors are `nvcsw | 1`. The generic power-of-two shortcut
 adds nothing beyond divisor one; LLVM actually eliminates that test in the
 odd-divisor probe. Conversely, LLVM retains `normalized & 1` and a multiply by
-that value even though normalization shifts by 1–63 and makes it zero. An
+that value even though normalization shifts by 1-63 and makes it zero. An
 explicit even-normalized reciprocal could trim that work, but would still pay
 the main reciprocal setup. This is an untested follow-up, not an explanation
 that requires inventing a hidden hardware fault.
@@ -147,7 +147,7 @@ histogram candidate computes `min(63 - clz((ns >> shift) | 1), bands - 1)`.
 The exact shared candidate helpers passed UBSan-backed independent checks:
 388,228 queue-order cases, 2,009,450 vtime cases, and 4,524,672 histogram cases,
 with zero mismatches. Tests include CPU 63, rotation by zero, empty/full/sparse
-masks, all spans 1–64, weight levels, overflow boundaries, maximum unsigned
+masks, all spans 1-64, weight levels, overflow boundaries, maximum unsigned
 values, bucket boundaries, saturation, and randomized inputs. Native arithmetic
 uses actual TZCNT/LZCNT/MUL in the userspace test; this is not a BPF kernel
 primitive selftest. Rust: 33 unit and 3 integration tests passed; one privileged
@@ -175,9 +175,9 @@ were restored. No new default policy was accepted.
 
 These are source-attributed diagnostic runs with basic binary/object pairing,
 not score-bearing v5-receipt comparisons against EEVDF. Unreal, compiler jobs
-and Discord were present. Main-screen total busy ranged **57.91–96.94%**;
-estimated non-appsim busy **25.34–66.88%**. Histogram-screen total busy ranged
-**63.86–94.31%**; non-appsim estimate **30.81–65.75%**. The latter subtracts
+and Discord were present. Main-screen total busy ranged **57.91-96.94%**;
+estimated non-appsim busy **25.34-66.88%**. Histogram-screen total busy ranged
+**63.86-94.31%**; non-appsim estimate **30.81-65.75%**. The latter subtracts
 appsim child CPU from host busy and includes harness/kernel overhead. A pure
 external-process CPU average was not measured. Noise class:
 `desktop_and_unreal_contaminated_diagnostic`.

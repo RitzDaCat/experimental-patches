@@ -1,4 +1,4 @@
-# Cake caching and hot-path lookup review — 2026-10-02
+# Cake caching and hot-path lookup review: 2026-10-02
 
 Follow-up: [the direct index is now implemented and simulated](DSQ_DIRECT_INDEX_2026-10-02.md)
 in an isolated kernel. The proposal below preserves its original evidence level;
@@ -37,9 +37,9 @@ otherwise specified. These are existing mechanisms, not proposed changes.
 
 | Data/work | Existing mechanism | Validity and avoided work |
 |---|---|---|
-| Topology and CPU preference | Loader-filled LLC masks, sibling IDs and steal order, around lines 1001–1058 | Precomputed for the scheduler instance; avoids rediscovering topology during selection. Topology changes require the existing lifecycle handling. |
-| Nice-weight scaling | Reciprocal table and multiply/shift, around lines 1084–1112 | Small fixed weight domain; no repeated general division for ordinary vtime charging. Separate experimental dynamic division replacement is still disabled. |
-| Idle/whole-core mask addresses | `cake_mask_cpu`, `cake_mask_smt`, lines 1194–1221; populated in `cake_init` | Caches the addresses of kernel-owned masks and reads their live words. Does not persist a supposedly current idle bitset. Avoids repeated get/put calls. |
+| Topology and CPU preference | Loader-filled LLC masks, sibling IDs and steal order, around lines 1001-1058 | Precomputed for the scheduler instance; avoids rediscovering topology during selection. Topology changes require the existing lifecycle handling. |
+| Nice-weight scaling | Reciprocal table and multiply/shift, around lines 1084-1112 | Small fixed weight domain; no repeated general division for ordinary vtime charging. Separate experimental dynamic division replacement is still disabled. |
+| Idle/whole-core mask addresses | `cake_mask_cpu`, `cake_mask_smt`, lines 1194-1221; populated in `cake_init` | Caches the addresses of kernel-owned masks and reads their live words. Does not persist a supposedly current idle bitset. Avoids repeated get/put calls. |
 | Selection inputs | `cake_pick_idle_clean`, line 2146 | Reuses idle/core/seat/noise snapshots and one clock reading within a search. Each chosen CPU still needs an authoritative idle claim. |
 | Queue presence | `qmask`, pool pending accounting, `cake_dispatch_search`, line 2838 | A clear owner mark and zero pool token can avoid count and peek entirely, under the documented producer/consumer protocol. Remote marks remain hints. |
 | Running-task accounting | Per-CPU `cake_run_slot`; `cake_running`, line 3229 | Retains starting runtime, timestamp and grant; stopping charges the runtime difference. Remote observations have separate consistency rules. |
@@ -77,8 +77,8 @@ Three additional caches already exist **inside the kernel**:
 ### 1. Direct DSQ index in the kernel
 
 `find_user_dsq()` currently calls `rhashtable_lookup()`. Cake's owner DSQs use
-CPU IDs; LLC pools use IDs 1026–1041. See
-[intf.h](https://github.com/RitzDaCat/scx/blob/RitzDaCat/scx_cake-nightly/scheds/rust/scx_cake/src/bpf/intf.h), lines 75–81, and `cake_init`.
+CPU IDs; LLC pools use IDs 1026-1041. See
+[intf.h](https://github.com/RitzDaCat/scx/blob/RitzDaCat/scx_cake-nightly/scheds/rust/scx_cake/src/bpf/intf.h), lines 75-81, and `cake_init`.
 Cake creates these queues during initialization; no Cake runtime destroy call
 was found in this review.
 
@@ -219,7 +219,7 @@ Even a 100% hit rate can lose if validation and shared writes are expensive.
 
 ## Follow-up: change frequency, hit rates and cross-core cost
 
-Read-only host inspection on October 2 found CPUs 0–15, eight physical cores,
+Read-only host inspection on October 2 found CPUs 0-15, eight physical cores,
 one shared LLC, 64-byte cache lines, 48 KiB L1 data cache per core, 1 MiB L2
 per core and 96 MiB shared L3. Sources: `lscpu -e` and CPU0 cache sysfs files.
 This does not establish a measured cache-hit rate.
@@ -228,7 +228,7 @@ This does not establish a measured cache-hit rate.
 
 | Candidate data | What changes it | Consequence for caching |
 |---|---|---|
-| DSQ ID → object pointer | Queue creation/destruction and scheduler teardown/restart | Cake creates queues only in `cake_init` and has no explicit destroy call. Normal steady-state mapping update rate is zero. A generic kernel implementation must still support other schedulers' dynamic queues. |
+| DSQ ID -> object pointer | Queue creation/destruction and scheduler teardown/restart | Cake creates queues only in `cake_init` and has no explicit destroy call. Normal steady-state mapping update rate is zero. A generic kernel implementation must still support other schedulers' dynamic queues. |
 | Queue count | Each queue insertion/removal | Frequently mutable; keep reading the kernel's current counter. A second maintained copy adds writes and ordering obligations. |
 | Queue head | Insertion of a new first task or removal of the current head | Potentially changes between two calls. Kernel already maintains it. Use only under its existing snapshot/lifetime contract. |
 | Count/head lookup reuse | Resolve again on each applicable callback | Reuse the queue identity within the operation; do not extend the lifetime of old observations. Shared cache entries are unnecessary for a local temporary. |
@@ -238,7 +238,7 @@ This does not establish a measured cache-hit rate.
 
 Candidate kernel anchors: queue count updates at `ext.c:1388` and `1426`,
 head updates at `1605` and `1681`, creation at `9439` and destruction at
-`4891`. `kernel/sched/core.c:7161–7187,7268` distinguishes voluntary and
+`4891`. `kernel/sched/core.c:7161-7187,7268` distinguishes voluntary and
 involuntary switch accounting. These are event-based change descriptions;
 this review did not record runtime events per second.
 
@@ -255,7 +255,7 @@ is needed for the proposed direct index.
 L3 or memory. The actual percentages are unknown. Source inspection cannot
 justify a 99% L1-hit claim.
 
-On this host Cake creates 16 owner queues and one pool, IDs 0–15 and 1026.
+On this host Cake creates 16 owner queues and one pool, IDs 0-15 and 1026.
 With a 64-byte-aligned pointer table, their entries occupy just **three cache
 lines, 192 bytes**, despite the full array occupying 16 KiB. A CPU repeatedly
 accessing its owner queue and the pool needs two of those lines. The small
@@ -278,7 +278,7 @@ warm-cache anchors, not kernel helper prices:
 |---|---:|---|
 | Dependent L1 pointer-chase load | 0.754 ns | `runs/isa_map_20260927/run2.txt`; small ring entirely warm |
 | Stored pointer followed by dereference sequence | 1.784 ns | `var1.txt` and `var2.txt`; includes dependency-forming arithmetic, not just two bare loads |
-| Current user-DSQ hash lookup | Not isolated in these measurements | The old cost ladder's 30–60 ns is an estimate, not a measured baseline |
+| Current user-DSQ hash lookup | Not isolated in these measurements | The old cost ladder's 30-60 ns is an estimate, not a measured baseline |
 | Proposed direct-index lookup | Not implemented/measured | A few nanoseconds is a plausible warm lookup target; not a prediction for the entire helper or a worst-case bound |
 
 Raw files are under `/home/ritz/Documents/Repo/scx_cake_bench/`:

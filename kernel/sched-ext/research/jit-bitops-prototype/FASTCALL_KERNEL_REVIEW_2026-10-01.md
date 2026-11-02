@@ -3,7 +3,7 @@
 Prepared October 1, 2026, America/Chicago; artifacts use October 2 UTC.
 
 **Implemented and VM-verified, not hardware-performance accepted.** The kernel
-can now truthfully preserve BPF R2–R5 across CTZ, POPCNT and CLZ. An annotated
+can now truthfully preserve BPF R2-R5 across CTZ, POPCNT and CLZ. An annotated
 release Cake build has smaller select_cpu code, but annotation also produces
 regressions in other configurations. Ordinary Cake source/defaults are unchanged
 by this experiment, and its ordinary release binary was restored byte-for-byte.
@@ -40,11 +40,11 @@ verifier from folding register-preservation checks into constants.
 
 `KF_FASTCALL` is registered only with `CONFIG_X86_64 && CONFIG_BPF_JIT`.
 Other architectures retain the ordinary kfunc ABI. Kfunc use itself requires
-JIT support. Unary operations may clobber R0 and R1; R2–R5 must survive.
+JIT support. Unary operations may clobber R0 and R1; R2-R5 must survive.
 Their existing five-byte native x86 sequences already satisfy that contract.
 
 When the relevant CPU feature is absent, the x86 JIT wraps the ordinary C call
-in saves/restores of RSI, RDX, RCX and R8, which hold BPF R2–R5. Four pushes keep
+in saves/restores of RSI, RDX, RCX and R8, which hold BPF R2-R5. Four pushes keep
 the existing stack alignment. RAX remains the result; existing private-frame
 and call-depth handling remains in place. This fallback has eight additional
 native instructions even for an unannotated caller: correctness is its purpose,
@@ -81,7 +81,7 @@ Three final QEMU TCG boots passed:
 | New kernel, forced C fallbacks | 6 pass; expected negative rejection | 2/2 portable | portable passes |
 
 Each scalar run covers zeros, all ones, every single-bit position, 1,024
-deterministic random values, R6–R9 preservation, and dedicated R2–R5 preservation
+deterministic random values, R6-R9 preservation, and dedicated R2-R5 preservation
 for each unary operation. Preservation values come from mutable map data, and
 the actual comparisons remain in the exported JIT. There are 18 successful
 positive program executions across the three boots, plus three expected
@@ -115,16 +115,16 @@ Both binaries are normal optimized Cargo **release** builds; the candidate adds
 only the forced-include annotation header. Counts include each dumped callback's
 referenced subprograms. They are static counts, not executed work per callback.
 
-| Mode / callback | Before → annotated native instructions | JIT byte delta | BPF stack-access delta |
+| Mode / callback | Before -> annotated native instructions | JIT byte delta | BPF stack-access delta |
 |---|---:|---:|---:|
-| Native bitops / select_cpu | 1,423 → 1,415 | −28 | −9 |
-| Native bitops / enqueue | 1,952 → 1,950 | −3 | −2 |
-| Native bitops / dispatch | 1,163 → 1,161 | −3 | −2 |
-| Native bitops / stopping, probe off | 306 → 306 | 0 | 0 |
-| Bitops + ring + quotient / select_cpu | 1,758 → 1,752 | −21 | −4 |
-| Bitops + ring + quotient / enqueue | 2,507 → 2,509 | +11 | +3 |
-| Bitops + ring + quotient / dispatch | 1,225 → 1,224 | −5 | −2 |
-| Native histogram, probe on / stopping | 493 → 499 | +24 | +6 |
+| Native bitops / select_cpu | 1,423 -> 1,415 | -28 | -9 |
+| Native bitops / enqueue | 1,952 -> 1,950 | -3 | -2 |
+| Native bitops / dispatch | 1,163 -> 1,161 | -3 | -2 |
+| Native bitops / stopping, probe off | 306 -> 306 | 0 | 0 |
+| Bitops + ring + quotient / select_cpu | 1,758 -> 1,752 | -21 | -4 |
+| Bitops + ring + quotient / enqueue | 2,507 -> 2,509 | +11 | +3 |
+| Bitops + ring + quotient / dispatch | 1,225 -> 1,224 | -5 | -2 |
+| Native histogram, probe on / stopping | 493 -> 499 | +24 | +6 |
 
 Portable default also shrinks select_cpu by eight instructions: compiler
 allocation/layout changes affect the whole object before the verifier prunes

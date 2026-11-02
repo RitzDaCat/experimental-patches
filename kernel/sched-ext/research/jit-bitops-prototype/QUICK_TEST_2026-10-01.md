@@ -1,4 +1,4 @@
-# Quick native scalar comparison — 2026-10-01
+# Quick native scalar comparison: 2026-10-01
 
 All eight slots passed verifier loading, requested flag selection, binary
 identity, zero exit status and restoration to native scheduling. No stalls or
@@ -16,7 +16,7 @@ CLZ/MULHI selection.
 
 | Mode | BPF CPU ms/s | Change | Frame p99 ns | Change |
 |---|---:|---:|---:|---:|
-| Default | 141.22 | — | 703,450 | — |
+| Default | 141.22 | - | 703,450 | - |
 | Native bitops | 138.46 | -1.95% | 654,200 | -49,250 ns |
 | Division-free | 158.87 | +12.51% | 733,150 | +29,700 ns |
 | Both | 149.19 | +5.65% | 678,450 | -25,000 ns |
