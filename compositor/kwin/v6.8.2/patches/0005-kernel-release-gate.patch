@@ -1,0 +1,70 @@
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Wed, 15 Jul 2026 16:05:00 -0500
+Subject: [PATCH] core/renderloop: gate timing experiment by exact kernel release
+
+Only honour the instrumentation and adaptive margin knobs when the running
+kernel exactly matches the configured experiment release. On all other
+kernels, keep stock KWin: the fixed 1 ms allowance and no instrumentation.
+The timerfd wakeup is stock in KWin 6.8 and is not gated.
+---
+ src/core/renderloop.cpp | 24 +++++++++++++++++++-----
+ 1 file changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/src/core/renderloop.cpp b/src/core/renderloop.cpp
+index de77c40e3ab5ac09fd576ba8036688d1a73ff2d2..244422cb53ee96c90d0f16ad9b05a6daa89f45bd 100644
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -14,6 +14,8 @@
+ #include "window.h"
+ #include "workspace.h"
+ 
++#include <sys/utsname.h>
++
+ using namespace std::chrono_literals;
+ 
+ namespace KWin
+@@ -24,11 +26,23 @@ RenderLoopPrivate *RenderLoopPrivate::get(RenderLoop *loop)
+     return loop->d.get();
+ }
+ 
+-static const bool s_printDebugInfo = qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0;
++static bool experimentKernelAllowed()
++{
++    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    if (expectedRelease.isEmpty()) {
++        return false;
++    }
++
++    struct utsname systemInfo;
++    return uname(&systemInfo) == 0 && expectedRelease == systemInfo.release;
++}
++
++static const bool s_experimentKernelAllowed = experimentKernelAllowed();
++static const bool s_printDebugInfo = s_experimentKernelAllowed && qEnvironmentVariableIntValue("KWIN_LOG_PERFORMANCE_DATA") != 0;
+ static const std::chrono::microseconds s_schedulerMargin{
+-    std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000)};
++    s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000) : 1000};
+ // 0 = fixed, 1 = shadow (learn but don't apply), 2 = adaptive.
+-static const int s_schedulerMarginMode = std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2);
++static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2) : 0;
+ static constexpr std::chrono::nanoseconds s_adaptiveMarginFloor = 100us;
+ static constexpr std::chrono::nanoseconds s_adaptiveMarginGuard = 50us;
+ static constexpr std::chrono::nanoseconds s_adaptiveMarginHysteresis = 100us;
+@@ -208,7 +222,7 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
+ {
+     if (output && s_printDebugInfo && !m_debugOutput) {
+         m_debugOutput = std::fstream(qPrintable("kwin perf statistics " + output->name() + ".csv"), std::ios::out);
+-        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid\n";
++        *m_debugOutput << "target pageflip timestamp,pageflip timestamp,render start,render end,safety margin,refresh duration,vrr,tearing,predicted render time,desired wake timestamp,armed wake timestamp,actual wake timestamp,wake lateness,schedule deficit,compositor scheduling margin,adaptive compositor scheduling margin,compositor margin mode,wake sample valid,experiment kernel allowed\n";
+     }
+     if (m_debugOutput) {
+         auto times = renderTime.value_or(RenderTimeSpan{});
+@@ -219,7 +233,7 @@ void RenderLoopPrivate::notifyFrameCompleted(std::chrono::nanoseconds timestamp,
+         *m_debugOutput << frame->targetPageflipTime().time_since_epoch().count() << "," << timestamp.count() << "," << times.start.time_since_epoch().count() << "," << times.end.time_since_epoch().count()
+                        << "," << safetyMargin.count() << "," << frame->refreshDuration().count() << "," << (vrr ? 1 : 0) << "," << (tearing ? 1 : 0) << "," << frame->predictedRenderTime().count()
+                        << "," << desiredWakeTimestamp.count() << "," << armedWakeTimestamp.count() << "," << actualWakeTimestamp.count() << "," << wakeLateness.count() << "," << scheduleDeficit.count() << "," << appliedSchedulerMargin.count()
+-                       << "," << adaptiveSchedulerMargin.count() << "," << s_schedulerMarginMode << "," << (wakeSampleValid ? 1 : 0) << "\n";
++                       << "," << adaptiveSchedulerMargin.count() << "," << s_schedulerMarginMode << "," << (wakeSampleValid ? 1 : 0) << "," << (s_experimentKernelAllowed ? 1 : 0) << "\n";
+     }
+ 
+     Q_ASSERT(pendingFrameCount > 0);

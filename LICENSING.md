@@ -14,7 +14,7 @@ license does not replace them.
 | scx_cake companion patch | GPL-2.0-only, matching scx_cake |
 | MangoHud patches | MIT; [license](tools/mangohud/v0.8.4/LICENSE) and [Intel notices](tools/mangohud/v0.8.4/NOTICE) |
 | GoXLR Utility patch | MIT; [license](audio/goxlr-utility/v1.2.4/LICENSE) |
-| KWin patches and reference overlay | Applicable upstream per-file SPDX licenses, including GPL and LGPL variants; [upstream license texts](compositor/kwin/v6.7.5/LICENSES/) |
+| KWin patches and reference overlay | Applicable upstream per-file SPDX licenses, including GPL and LGPL variants; [upstream license texts](compositor/kwin/v6.8.2/LICENSES/) |
 | KWin lifecycle tools, models and testing guides | GPL-2.0-only for this standalone collection; upstream source notices remain in force |
 
 Preserve author, copyright, license and upstream attribution when refreshing a

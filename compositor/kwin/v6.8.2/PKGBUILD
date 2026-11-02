@@ -1,0 +1,215 @@
+# Standalone bundle adaptation, 2026-10-08: strict application.
+pkgname=kwin
+pkgver=6.8.2
+pkgrel=1.1
+_kwin_latency_revision=26
+pkgdesc="KWin 6.8.2 latency experiment revision $_kwin_latency_revision"
+xdata=("kwin-latency-revision=$_kwin_latency_revision"
+       "kwin-latency-base=$pkgver-$pkgrel")
+arch=(x86_64)
+url='https://kde.org/plasma-desktop/'
+license=(LGPL-2.0-or-later)
+depends=(aurorae
+         breeze
+         glibc
+         iio-sensor-proxy
+         plasma-activities
+         kauth
+         kcmutils
+         kcolorscheme
+         kconfig
+         kcoreaddons
+         kcrash
+         kdbusaddons
+         kdeclarative
+         kdecoration
+         kglobalaccel
+         kglobalacceld
+         kguiaddons
+         ki18n
+         kidletime
+         kirigami
+         kitemmodels
+         knewstuff
+         knighttime
+         knotifications
+         kpackage
+         kquickcharts
+         krunner
+         kscreenlocker
+         kservice
+         ksvg
+         kwayland
+         kwidgetsaddons
+         kwindowsystem
+         kxmlgui
+         lcms2
+         libcanberra
+         libdisplay-info
+         libdrm
+         libei
+         libepoxy
+         libevdev
+         libgcc
+         libinput
+         libpipewire
+         libqaccessibilityclient-qt6
+         libstdc++
+         libxcb
+         libxcvt
+         libxkbcommon
+         mesa
+         milou
+         pipewire-session-manager
+         libplasma
+         qt6-5compat
+         qt6-base
+         qt6-declarative
+         qt6-svg
+         qt6-tools
+         systemd-libs
+         vulkan-icd-loader
+         wayland
+         xcb-util-keysyms
+         xcb-util-wm)
+makedepends=(extra-cmake-modules
+             kdoctools
+             krunner
+             plasma-wayland-protocols
+             python
+             vulkan-headers
+             wayland-protocols
+             xorg-xwayland)
+optdepends=('plasma-keyboard: virtual keyboard')
+groups=(plasma)
+source=(https://download.kde.org/stable/plasma/$pkgver/$pkgname-$pkgver.tar.xz
+        file://$startdir/patches/0003-wakeup-instrumentation.patch
+        file://$startdir/patches/0004-adaptive-wakeup-margin.patch
+        file://$startdir/patches/0005-kernel-release-gate.patch
+        file://$startdir/patches/0006-adaptive-margin-v2.patch
+        file://$startdir/patches/0007-backends-libinput-add-gated-input-queue-telemetry.patch
+        file://$startdir/patches/0008-telemetry-sample-observers-outside-nanosecond-hot-paths.patch
+        file://$startdir/patches/0009-adaptive-render-budget.patch
+        file://$startdir/patches/0010-vrr-cadence-repaint-coalescing.patch
+        file://$startdir/patches/0011-bounded-latency-capture.patch
+        file://$startdir/patches/0012-reason-coded-capture.patch
+        file://$startdir/patches/0014-fix-inverse-srgb-linear-segment.patch
+        file://$startdir/patches/0016-compensate-mandatory-color-pipeline-curves.patch
+        file://$startdir/patches/0017-exact-frame-and-color-capture.patch
+        file://$startdir/patches/0018-guard-wake-sample-consumption.patch
+        file://$startdir/patches/0019-default-low-latency-policy.patch
+        file://$startdir/patches/0020-runtime-optin-latency-policy.patch
+        file://$startdir/patches/0021-selectable-mandatory-csc-pq-scale.patch
+        file://$startdir/patches/0022-precisetimer-clamp-nonpositive-deadline.patch
+        file://$startdir/bin/kwin-latency-game
+        file://$startdir/packaging/kwin-latency-check-gate.sh
+        file://$startdir/packaging/kwin-latency-kernel-gate.hook
+        file://$startdir/packaging/kwin-latency-kwin-replaced.hook)
+sha256sums=('ea5e68d957c7d70abed97222a592d4445fda29129e20942658badd224ee138b4'
+            'fa4260966ec9d2a18dfaf6e5ca14b34b485b0cfd714a846be289b89dc7fdedfb'
+            '7bef529e8813e4432f090398906eafdae06a63e2bc862a8ba5bcacf248e6ac03'
+            '6ebcba0f228a3e1bdfccce5c454eb593766bdc50c70914cebaccc3528c96aa2c'
+            '8dd6b9c4a3121f02fe7d054c79052973e46c5a578657141b0c915b4608ca36e1'
+            '5bc4d63162c30086c2d13db3b9d11a2f316b257626270e7486be1a05ef1f90e4'
+            'f05e02e9dfd9be4467be68aea3cdc7dbfe426b5a92c383c36734108a2fce7a0e'
+            '0625d5ef8cd4b554b8f2a3924cb6c4f6601dead7b5ab210cd1c86eb945124036'
+            '458f1b06c0f035b67d00c0cb1a78ffc2d22d54347072e7633203fac892ce5366'
+            '36f8ea749bffe48d1b4b41c860e166c274580f852fa29f42a57ba03dfecbb851'
+            '76db2d9b233a2d1f1490eef0c5352a4214597ce7b2544946490a34a9ba5e346f'
+            '12c7630a7c375c07f998897ad4c33a91cba09f09cd4522e5d20abcb448502a69'
+            '4ceec51b138ba1268f5c4e2d51a98d7b9175043a3e753fd22f9b7babadf413f5'
+            'a526b85cd7a4ef5020bda30f7e48f2636134dce63f51a9a83388acfcc4ee57cb'
+            'c5d739a163353b7c51bc2e5428188fdb86e79b585838140d33529a8bc488701d'
+            '90b2a19a6e312ecb70919d469af228a0460955b4b404dd96a30d445659f99d41'
+            '47f7730386d2bf85acf495dd07c633af907437d12ca42dc8253cc41928103ca3'
+            '2496ca72593ecf3e3ab287b73b1330da20b9744f5be403f605a54fdd3fa64188'
+            'c0629db297888923c198194eec7208e92e695dfc42d6355b2aac5fc045efd349'
+            '5b58e4145102460990c30c7d440a1bc21152665b7a624bd6e9df11b2262a3d9c'
+            '29dc45431f2277e9b2bb6377bd4e688045207ace1fedd39d1da837629d520707'
+            '500b277fdcab90c65c3a7099ff9ff7fa8a3f0d088895310b4ee03740b5756d8e'
+            '4c87be7ec67b8773123290207d4750c8abf633fe34e4b1bc4f6e121061e3f430')
+
+prepare() {
+  # Arch and CachyOS 6.8.2-1 build the pristine tarball with no distribution
+  # patches, so the series starts on it. The PreciseTimer timerfd wakeup
+  # (former 0001/0002) is part of 6.8. Patch numbers are stable IDs: 0013
+  # became obsolete in 6.8 and 0015 waits for a 6.8 benchmark.
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0003-wakeup-instrumentation.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0004-adaptive-wakeup-margin.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0005-kernel-release-gate.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0006-adaptive-margin-v2.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0007-backends-libinput-add-gated-input-queue-telemetry.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0008-telemetry-sample-observers-outside-nanosecond-hot-paths.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0009-adaptive-render-budget.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0010-vrr-cadence-repaint-coalescing.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0011-bounded-latency-capture.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0012-reason-coded-capture.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0014-fix-inverse-srgb-linear-segment.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0016-compensate-mandatory-color-pipeline-curves.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0017-exact-frame-and-color-capture.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0018-guard-wake-sample-consumption.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0019-default-low-latency-policy.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0020-runtime-optin-latency-policy.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0021-selectable-mandatory-csc-pq-scale.patch"
+  patch -d "$pkgname-$pkgver" -Np1 --batch --forward --fuzz=0 --no-backup-if-mismatch -i "$srcdir/0022-precisetimer-clamp-nonpositive-deadline.patch"
+}
+
+build() {
+  rm -rf build
+  # Bake a kernel release into the binary as the default experiment gate
+  # (patch 0019 reads this macro), so the low-latency policy holds with no
+  # environment.d profile. KWIN_LATENCY_GATE_KERNEL names the kernel that will
+  # be booted (kwin-latencyctl build --kernel sets it); the default is the
+  # build machine's running kernel. A kernel update still fails closed to
+  # stock behaviour until the package is rebuilt.
+  export CXXFLAGS="${CXXFLAGS-} -DKWIN_LATENCY_BAKED_KERNEL_RELEASE=\"\\\"${KWIN_LATENCY_GATE_KERNEL:-$(uname -r)}\\\"\""
+  cmake -B build -S $pkgname-$pkgver \
+    -DCMAKE_INSTALL_LIBEXECDIR=lib \
+    -DBUILD_TESTING=ON \
+    -DKWIN_BUILD_SCREENLOCKER=ON
+  cmake --build build
+
+  # rev16 shipped with KWIN_BUILD_SCREENLOCKER=OFF, which drops the
+  # KScreenLocker linkage from libkwin. On Wayland ksmserver defers locking to
+  # KWin, so nothing then registers org.freedesktop.ScreenSaver and both Meta+L
+  # and the "Lock" menu item silently do nothing. Fail the build instead.
+  # Read into a variable rather than piping: grep -q exits on first match, which
+  # SIGPIPEs objdump, and under `set -o pipefail` that fails the whole pipeline.
+  local headers
+  headers=$(objdump -p build/bin/libkwin.so.6)
+  if ! grep -q libKScreenLocker <<<"$headers"; then
+    echo "==> ERROR: libkwin.so.6 is missing libKScreenLocker; lock screen would be broken" >&2
+    return 1
+  fi
+}
+
+check() {
+  # Only the tests that cover the patched colour paths run here. 0014 adds
+  # testSrgbLinearSegmentRoundtrip to kwin-testColorspaces and 0016 adds
+  # testNonBypassableNamedTransferFunctions to kwin-testMockDrm. Both are
+  # pure-computation tests, so they run without a display. The rest of the KWin
+  # suite needs a live Wayland/X session and cannot run inside a package build.
+  ctest --test-dir build --output-on-failure -R '^kwin-testColorspaces$'
+  # testMockDrm is run for the one patched function only. Its upstream cases
+  # open the real /dev/dri node, and testModeGeneration(1440p) hung for the
+  # full 300 s QtTest limit under a live compositor on the 6.7.5-3.1 build.
+  # Same working directory as the ctest entry (ecm_add_test sets it).
+  (cd build/autotests/drm && ../../bin/testMockDrm testNonBypassableNamedTransferFunctions)
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+  setcap CAP_SYS_NICE=+ep "$pkgdir"/usr/bin/kwin_wayland
+  # Steam launch options need the per-game wrapper on PATH with no repo
+  # checkout, so the package carries it: kwin-latency-game -- %command%
+  install -Dm755 "$srcdir/kwin-latency-game" "$pkgdir/usr/bin/kwin-latency-game"
+  # alpm hooks that make the two silent-revert paths loud: a kernel upgrade
+  # that removes the gate kernel's modules, and any replacement of the kwin
+  # package. Package-owned so install and removal track the package itself.
+  install -Dm755 "$srcdir/kwin-latency-check-gate.sh" \
+    "$pkgdir/usr/lib/kwin-latency/check-gate.sh"
+  install -Dm644 "$srcdir/kwin-latency-kernel-gate.hook" \
+    "$pkgdir/usr/share/libalpm/hooks/kwin-latency-kernel-gate.hook"
+  install -Dm644 "$srcdir/kwin-latency-kwin-replaced.hook" \
+    "$pkgdir/usr/share/libalpm/hooks/kwin-latency-kwin-replaced.hook"
+}

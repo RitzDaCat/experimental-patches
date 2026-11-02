@@ -3,8 +3,8 @@
 Check the [compatibility matrix](compatibility/) first. The CachyOS 7.3 and
 TJ development kernel ports apply and their affected objects build; they
 have not been booted or measured. Pass `--series series.all` for all four
-kernel features. The included KWin bundle is for 6.7.5 and still needs a
-port to the current Plasma 6.8 source.
+kernel features. The KWin bundle is ported to 6.8.2 (revision 26); it
+applies and compiles but has not been packaged or run yet.
 
 ## Before you start
 
@@ -29,7 +29,7 @@ for the stock version. Check it after every install, update and reboot:
 | Kernel | `make kernelrelease`, then `uname -r` after boot | Recorded target release with `-exp` (packaging/config may add other suffixes) | matching stock target without experiment identity |
 | scx_cake release | `scx_cake --version`, `cat /sys/kernel/sched_ext/root/ops` | `scx_cake 1.2.2-exp...`, `cake_1.2.2_exp...` | no `exp` |
 | scx_cake experimental nightly | same checks | `scx_cake 1.3.0-exp...`, `cake_1.3.0_exp...` | no `exp` |
-| KWin | `pacman -Qi kwin`, `./bin/kwin-latencyctl status` | Description `KWin 6.7.5 latency experiment revision 25` | Description `An easy to use, but flexible, Wayland compositor` |
+| KWin | `pacman -Qi kwin`, `./bin/kwin-latencyctl status` | Description `KWin 6.8.2 latency experiment revision 26` | Description `An easy to use, but flexible, Wayland compositor` |
 | GoXLR Utility | `goxlr-daemon --version`, daemon log | `goxlr-daemon 1.2.4-exp` | `goxlr-daemon 1.2.4` |
 | MangoHud | `mangohud --version`, overlay version line | `v0.8.4-exp` (`v0.8.4+-exp` from a patched git checkout) | `v0.8.4` |
 
@@ -37,7 +37,7 @@ KWin keeps the stock pacman version on purpose, so the next distribution
 update replaces it normally; its description and `status` name the experiment.
 The KWin gate must match the kernel you boot. When testing the kernel patches
 too, build a compatible KWin series for the exact release reported by
-`make kernelrelease`. The older 6.7.5 bundle is not a current Plasma 6.8 port.
+`make kernelrelease`.
 
 ## Testing fairly
 

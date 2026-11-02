@@ -67,7 +67,7 @@ bash -n scripts/apply.sh
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/index.py --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
-cd compositor/kwin/v6.7.5
+cd compositor/kwin/v6.8.2
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/generate_readme_graphs.py --check
 ```

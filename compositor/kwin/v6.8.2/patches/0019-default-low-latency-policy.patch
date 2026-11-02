@@ -1,0 +1,53 @@
+Subject: [PATCH] Default the low-latency policy on behind a baked kernel gate
+
+Make adaptive scheduler margin (mode 2), adaptive render budget (mode 2),
+and VRR repaint coalescing the compiled-in defaults, gated on a kernel
+release baked in at build time (KWIN_LATENCY_BAKED_KERNEL_RELEASE) so no
+environment.d profile is required. All variables remain as opt-out
+overrides. KWin 6.8 already requests the DRM plane color pipeline only
+with KWIN_DRM_USE_COLOR_PIPELINE=1, so this patch no longer touches it.
+---
+ src/core/renderloop.cpp | 22 +++++++++++++++-------
+ 1 file changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/src/core/renderloop.cpp b/src/core/renderloop.cpp
+index fe5b2e1cbd39cbb6314b076e01acea436d52b0b2..00f26f8f045f92c6d5c693f7b6762af9551885ae 100644
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -28,7 +28,15 @@ RenderLoopPrivate *RenderLoopPrivate::get(RenderLoop *loop)
+ 
+ static bool experimentKernelAllowed()
+ {
+-    const QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++    QByteArray expectedRelease = qgetenv("KWIN_COMPOSITOR_EXPERIMENT_KERNEL_RELEASE");
++#ifdef KWIN_LATENCY_BAKED_KERNEL_RELEASE
++    // The package bakes the build machine's kernel release in so the gate
++    // holds with no environment.d profile; the variable stays as an override
++    // (set it to any other string to fail closed to stock behaviour).
++    if (expectedRelease.isEmpty()) {
++        expectedRelease = KWIN_LATENCY_BAKED_KERNEL_RELEASE;
++    }
++#endif
+     if (expectedRelease.isEmpty()) {
+         return false;
+     }
+@@ -44,13 +52,13 @@ static const uint64_t s_compositorTelemetrySampleDivisor = static_cast<uint64_t>
+     environmentVariableIntValue("KWIN_COMPOSITOR_TELEMETRY_SAMPLE_DIVISOR").value_or(16), 1, 4096));
+ static const std::chrono::microseconds s_schedulerMargin{
+     s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_COMPOSITOR_SCHEDULING_MARGIN_US").value_or(1000), 0, 10'000) : 1000};
+-// 0 = fixed, 1 = shadow (learn but don't apply), 2 = adaptive.
+-static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2) : 0;
+-// 0 = stock, 1 = shadow (learn but don't apply), 2 = adaptive.
+-static const int s_renderBudgetMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(0), 0, 2) : 0;
++// 0 = fixed, 1 = shadow (learn but don't apply), 2 = adaptive (default).
++static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(2), 0, 2) : 0;
++// 0 = stock, 1 = shadow (learn but don't apply), 2 = adaptive (default).
++static const int s_renderBudgetMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(2), 0, 2) : 0;
+ // Coalesce non-foreground VRR damage to the active surface's measured cadence.
+-// The exact-kernel gate and an explicit opt-in are both required.
+-static const bool s_vrrRepaintCoalescing = s_experimentKernelAllowed && qEnvironmentVariableIntValue("KWIN_VRR_REPAINT_COALESCING") == 1;
++// Default-on behind the exact-kernel gate; set the variable to 0 to opt out.
++static const bool s_vrrRepaintCoalescing = s_experimentKernelAllowed && environmentVariableIntValue("KWIN_VRR_REPAINT_COALESCING").value_or(1) == 1;
+ static constexpr unsigned int s_adaptiveMarginWindowSize = 256;
+ static constexpr unsigned int s_adaptiveExternalStallFallbackCount = 2;
+ static constexpr unsigned int s_adaptiveRenderBudgetWindowSize = 128;

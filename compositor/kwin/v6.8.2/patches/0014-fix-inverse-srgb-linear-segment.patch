@@ -1,0 +1,66 @@
+From 061f564010fb07d00a06e27851c6a43bbf80f8bb Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Tue, 21 Jul 2026 22:48:00 -0500
+Subject: [PATCH] core: fix inverse sRGB linear segment
+
+The low segment of the inverse sRGB transfer function multiplies linear light
+by 12.92. Dividing by 12.92 makes values immediately below the piecewise
+boundary about 167 times too small and introduces a large discontinuity.
+
+The GLSL implementation already uses multiplication. Add focused CPU
+round-trip coverage below, at, and above the boundary; existing tests only
+sample black, mid gray, white, and primaries.
+---
+ autotests/test_colorspaces.cpp | 18 ++++++++++++++++++
+ src/core/colorspace.cpp        |  2 +-
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/autotests/test_colorspaces.cpp b/autotests/test_colorspaces.cpp
+index fbdab4c4d3d9c356ccd1031cc3749163e7e6da6b..caefb78409f694069179482ba923ec4360938003 100644
+--- a/autotests/test_colorspaces.cpp
++++ b/autotests/test_colorspaces.cpp
+@@ -31,6 +31,7 @@ public:
+ private Q_SLOTS:
+     void roundtripConversion_data();
+     void roundtripConversion();
++    void testSrgbLinearSegmentRoundtrip();
+     void testXYZ_XYconversions();
+     void testIdentityTransformation_data();
+     void testIdentityTransformation();
+@@ -108,6 +109,23 @@ void TestColorspaces::roundtripConversion()
+     }
+ }
+ 
++void TestColorspaces::testSrgbLinearSegmentRoundtrip()
++{
++    const TransferFunction transfer(TransferFunction::sRGB, 0, 1);
++    constexpr std::array encodedValues{
++        0.0f,
++        0.01f,
++        0.02f,
++        0.04044f,
++        0.04045f,
++        0.05f,
++    };
++    for (const float encoded : encodedValues) {
++        const QVector3D roundtrip = transfer.nitsToEncoded(transfer.encodedToNits(QVector3D(encoded, encoded, encoded)));
++        QVERIFY2(std::abs(roundtrip.x() - encoded) < 1e-6f, qPrintable(QString::number(encoded, 'g', 9)));
++    }
++}
++
+ void TestColorspaces::testXYZ_XYconversions()
+ {
+     // this test ensures that xyY<->XYZ conversions can handle weird inputs
+diff --git a/src/core/colorspace.cpp b/src/core/colorspace.cpp
+index 6b2d75c904086d1d9cdba0fff7d7cd868429b4e8..0dc5c04e58fa268398f294dbcfe413b1049aa543 100644
+--- a/src/core/colorspace.cpp
++++ b/src/core/colorspace.cpp
+@@ -800,7 +800,7 @@ double TransferFunction::sRGBinverseEOTF(double nits) const
+ {
+     const double normalized = normalize(nits);
+     if (normalized < 0.0031308) {
+-        return std::max(normalized / 12.92, 0.0);
++        return std::max(normalized * 12.92, 0.0);
+     } else {
+         return std::clamp(std::pow(normalized, 5.0 / 12.0) * 1.055 - 0.055, 0.0, 1.0);
+     }

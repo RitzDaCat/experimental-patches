@@ -242,95 +242,63 @@
     {
       "id": "kwin",
       "component": "compositor/kwin",
-      "version": "6.8.1-1.1",
-      "patch_set": "compositor/kwin/v6.7.5/patches",
-      "status": "port-required",
+      "version": "6.8.2-1.1",
+      "patch_set": "compositor/kwin/v6.8.2/patches",
+      "status": "applies",
       "base": {
-        "archive": "https://download.kde.org/stable/plasma/6.8.1/kwin-6.8.1.tar.xz",
-        "archive_sha256": "f3d725f81061c1ba97fdef8aeb2101a5c5e03c77f11e9a2abaa1dfed4489d3b6"
+        "archive": "https://download.kde.org/stable/plasma/6.8.2/kwin-6.8.2.tar.xz",
+        "archive_sha256": "ea5e68d957c7d70abed97222a592d4445fda29129e20942658badd224ee138b4"
       },
       "tracking": [
         {
           "kind": "package",
           "url": "https://mirror.cachyos.org/repo/x86_64_v4/cachyos-extra-znver4/",
           "name": "kwin",
-          "version": "6.8.1-1.1"
+          "version": "6.8.2-1.1"
         }
       ],
-      "skip_patches": {
-        "0001-precise-timer.patch": {
-          "status": "upstream",
-          "reason": "PreciseTimer is included in KWin 6.8.1."
-        },
-        "0002-renderloop-timerfd.patch": {
-          "status": "upstream",
-          "reason": "KWin 6.8.1 uses PreciseTimer in its render loop."
-        },
-        "0013-exact-kernel-nvidia-color-pipeline.patch": {
-          "status": "superseded",
-          "reason": "KWin 6.8 enables plane color pipelines upstream; compensation still needs its own opt-in gate during the port."
-        }
-      },
       "files": {
         "autotests/drm/mockDrmTest.cpp": "0797d0b0112949ed45de2215a5faba8bc0320b5325c0e13172a75b330504a430",
         "autotests/test_colorspaces.cpp": "e977619b5ad0688ef694a0e1ce06b68b86811640643e4bebb2e1eba3ca10e45a",
-        "src/backends/drm/drm_colorop.cpp": "89f6e483e2fd57a5893991d193bb4da151784f03fc93f72a37929ce07fc1c11f",
+        "src/backends/drm/drm_colorop.cpp": "cca26b96793ccee757f2d76fbaa8da71008e5334e31a350db970aafb4c2f0658",
         "src/backends/drm/drm_colorop.h": "4a4f1cc371c275068b3bc36cf0f3d4da2c720440f2dbddb96213f8b8c609a044",
         "src/backends/drm/drm_commit_thread.cpp": "b1dbb14c135287475a9732d5696fc1b7351a2bfb10b82c649391fd3f8a40e725",
         "src/backends/drm/drm_commit_thread.h": "3b11fc51d145155533125fd0a58f9a78cf183de4b07ef80560793120bec1077b",
-        "src/backends/drm/drm_egl_layer.cpp": "c4dd571def98b737413a01aca77bd922c636a4137b35639b25ce7c418e2d681f",
+        "src/backends/drm/drm_egl_layer.cpp": "9b105d4b1ce2d8515f1d0809c9e919f792f9794f2d2f70e9d03e6a14506dc4c6",
         "src/backends/drm/drm_egl_layer.h": "aa26a30dfbaafb3e0a16848d46dee6927ba3717d49c03bb1b6f2fde1c3256bc0",
-        "src/backends/drm/drm_gpu.cpp": "90141bb907baf9ee3440a84bed4dccb2300d9ddd718358c122ecb5ebbc360e30",
-        "src/backends/drm/drm_pipeline.cpp": "58849f005db67360a94215ac3a78435f4f6e359373d3c31c2ae5afa975729b40",
-        "src/backends/drm/drm_plane.cpp": "54604ed30d79365d3c34ea26509dfab299c40278364dbd679a45e2bb08449f0b",
-        "src/backends/drm/drm_plane.h": "a1cca9f1ebb23459efcc4de1c5f56c9710608876d3cc64fe37abfe7ed189bd4e",
         "src/backends/libinput/connection.cpp": "a761fe069027ebc7d3f15148207326ee9610b8107db1648c04d0d0b1791d2b8a",
         "src/backends/libinput/connection.h": "d1ccf9f5ec26086a8e84a9e961328ed7bb5c210483ecfb2e28bb2a5b051c6522",
         "src/backends/libinput/events.h": "ea264682c44cb82bba301804062aa4117cbfda0603120b814be0b29d961d04e1",
-        "src/compositor.cpp": "d627db777865ab0fd6558de36b5c86679f7f209e170c322e100b408e13e785c8",
+        "src/compositor.cpp": "511851d1797a4eed15397a42405ea3dd9664e06cce97d53275c4ea06ba5a37ed",
         "src/core/colorspace.cpp": "37548ddf0ecc10bcdc586f059b0c98dcd780684911ca92ec42d20d2a7b809de5",
-        "src/core/outputlayer.cpp": "8cc82963ccfff31b5d2dcab36147ba5894e1bafccefd1f1f14153376ac6251eb",
         "src/core/outputlayer.h": "fd9827134ff4ed2c10776167afc2c08848c172a4f0e7f849c96f9d5906d56cd5",
         "src/core/renderbackend.cpp": "86eb79c7369d9a4d38167230ea2757234fc1162fe89dfc2952c1c96a44504cdd",
         "src/core/renderbackend.h": "75ac9497337e10db0a0547ef357005bf820e48cc27e7b053c09fdbc58fef8097",
         "src/core/renderloop.cpp": "8d768ace200d5725f5e5b1affeaf9ddc1ff5c79c563a4e5d72e26fdc9f1abef1",
         "src/core/renderloop.h": "5395d1b4f11fff598cb8d3feb481b0c11c2dccb883a9864b4e7bd5a2338c44c6",
         "src/core/renderloop_p.h": "ee2c8bef2446c95239da276aa8b30cfcd15e9eef57a5c02227e06854532cef0e",
-        "src/opengl/colormanagement.glsl": "11dc02113088935ae55a542298d626ee0b7769c547460792523fb94d5049ffee",
-        "src/opengl/glrendertimequery.cpp": "46f25bc4c185581c08e6bc741d37f2bf292a9300da0bbf087380998a52a05a8d",
-        "src/opengl/glshader.cpp": "07c64c3ffe5ac4b85414bd0e62bbf2f9b51d9eb8e2a9682a4a3cf389a755469c",
-        "src/opengl/glshader.h": "fd58235aa6304c98427f5d0f18d60389c7dc6e3a658dea6a6803ef1e7629e458",
-        "src/opengl/glshadermanager.cpp": "235b09e29075a8d298ec8de7ff9a48bd636d295132698a5a93002a4f43098005",
-        "src/opengl/glshadermanager.h": "ebf536007a4956c8739376fd8c81725701651ae13ba38119e24f5a05468915b4",
-        "src/scene/itemrenderer_opengl.cpp": "3d809a21f21843f0144cb487187fe382468aea9a8cb994403b26593043f13280",
-        "src/scene/itemrenderer_opengl.h": "14cf47a5ddd06b4c48264240ead5261c294d032f8fa1f384d8d27d1f236bdbed",
-        "src/utils/CMakeLists.txt": "226f1adb946ab0a4e9e6dc338339bf2d325e191ada1c2704c5ce784601c41ced",
-        "src/utils/precisetimer.cpp": "5f4cf7d32904b9c947951912f943da3cdde3815e48663ee51d02a0f8f1da0f1f",
-        "src/utils/precisetimer.h": "fe221a9769b20530ca818507c01cd469e8f36d5471abcfbb22db3324e8c4b67f"
+        "src/utils/precisetimer.cpp": "5f4cf7d32904b9c947951912f943da3cdde3815e48663ee51d02a0f8f1da0f1f"
       },
       "absent_files": [],
       "patches": {
-        "0001-precise-timer.patch": "7450b4581230d8dc29d62dca058eabd19a55b0ed0ba4c750cb68c7d1a5dcb894",
-        "0002-renderloop-timerfd.patch": "51e3d3e2b2f509137a0f781908c001c2040fe1eef71e03b3203e4be99b0afac9",
-        "0003-wakeup-instrumentation.patch": "b1038bba5e51fcb604bc166d90e42856fe1cf5a60df7f504da28443a60851882",
-        "0004-adaptive-wakeup-margin.patch": "efa6cbf92869748fb5af9a55bf2c11946b27acdf22d39289593eb0d1067b6d8d",
-        "0005-kernel-release-gate.patch": "472d665e08c2908723ae6c03aeb601e57a10a34b4a4b1baf5153cfa53d20b503",
-        "0006-adaptive-margin-v2.patch": "ee200b771472c52136f13f80e838a75b2b2760b891b25f31dfa9379b77051f37",
-        "0007-backends-libinput-add-gated-input-queue-telemetry.patch": "175e8072d083c2ee22d22c273afd81089f02a2d763323b1630e3c2ed9037a01f",
-        "0008-telemetry-sample-observers-outside-nanosecond-hot-paths.patch": "25e3de51b1c1971b14768ef8cfed8ec3829e3be56729871d4adce4263f88d668",
-        "0009-adaptive-render-budget.patch": "2c6e1316cb6560a96cd9ecaf3bd4b0eb42f01763254a085ac54782330fc16ed1",
-        "0010-vrr-cadence-repaint-coalescing.patch": "733bf3be236a522edd5d8e026d583744e26f571f0ca3b458277fc92bc99e779b",
-        "0011-bounded-latency-capture.patch": "0eb4c75383a48c189c8532e21b47c94530021af5b6841a3049cc6fb92a4826c6",
-        "0012-reason-coded-capture.patch": "fa1713170a241824fc8569894cf8886d011a1cf2bdc8d5c7998a879c6d9dc526",
-        "0013-exact-kernel-nvidia-color-pipeline.patch": "767dfaa01f65e43d6207e86d48fc13dbfef70c3ed81b191720f663d13c67375e",
-        "0014-fix-inverse-srgb-linear-segment.patch": "1b2b7bab6e49c1af5e51c6afe9705d82b04d62853ad5b1c36e72c6ee7731cc93",
-        "0015-bounded-color-hot-path-cache.patch": "ed5b6636639d8717cc37ac2a525b3f5c24dca0b706aedf910607cda972ade752",
-        "0016-compensate-mandatory-color-pipeline-curves.patch": "8daacf1ad1077e813fb89c7c5fcc62f37f7347335e4552f702f34aef0105d71e",
-        "0017-exact-frame-and-color-capture.patch": "37224e9eccb561e45c06fca9cb54e8d2937b8355a172acdc576cd64fea06161c",
-        "0018-guard-wake-sample-consumption.patch": "3409c879cbe6694472df88d3a44be97043d5ea5952f93c2780690505671db4f1",
-        "0019-default-low-latency-policy.patch": "ce5bb1ff8d2b63c4589ca6103ce17638cd1fd2c90418c4f6bd3216036b0f1674",
-        "0020-runtime-optin-latency-policy.patch": "e37e115f3248bec356b51cbf0771e0e42b5f79a375eaf94cc2ca75641b9d5166",
-        "0021-selectable-mandatory-csc-pq-scale.patch": "6a110596fe0b31330e205b9c541fb73713d544d2aacc5d5fde0100fd0f6cca44"
+        "0003-wakeup-instrumentation.patch": "fa4260966ec9d2a18dfaf6e5ca14b34b485b0cfd714a846be289b89dc7fdedfb",
+        "0004-adaptive-wakeup-margin.patch": "7bef529e8813e4432f090398906eafdae06a63e2bc862a8ba5bcacf248e6ac03",
+        "0005-kernel-release-gate.patch": "6ebcba0f228a3e1bdfccce5c454eb593766bdc50c70914cebaccc3528c96aa2c",
+        "0006-adaptive-margin-v2.patch": "8dd6b9c4a3121f02fe7d054c79052973e46c5a578657141b0c915b4608ca36e1",
+        "0007-backends-libinput-add-gated-input-queue-telemetry.patch": "5bc4d63162c30086c2d13db3b9d11a2f316b257626270e7486be1a05ef1f90e4",
+        "0008-telemetry-sample-observers-outside-nanosecond-hot-paths.patch": "f05e02e9dfd9be4467be68aea3cdc7dbfe426b5a92c383c36734108a2fce7a0e",
+        "0009-adaptive-render-budget.patch": "0625d5ef8cd4b554b8f2a3924cb6c4f6601dead7b5ab210cd1c86eb945124036",
+        "0010-vrr-cadence-repaint-coalescing.patch": "458f1b06c0f035b67d00c0cb1a78ffc2d22d54347072e7633203fac892ce5366",
+        "0011-bounded-latency-capture.patch": "36f8ea749bffe48d1b4b41c860e166c274580f852fa29f42a57ba03dfecbb851",
+        "0012-reason-coded-capture.patch": "76db2d9b233a2d1f1490eef0c5352a4214597ce7b2544946490a34a9ba5e346f",
+        "0014-fix-inverse-srgb-linear-segment.patch": "12c7630a7c375c07f998897ad4c33a91cba09f09cd4522e5d20abcb448502a69",
+        "0016-compensate-mandatory-color-pipeline-curves.patch": "4ceec51b138ba1268f5c4e2d51a98d7b9175043a3e753fd22f9b7babadf413f5",
+        "0017-exact-frame-and-color-capture.patch": "a526b85cd7a4ef5020bda30f7e48f2636134dce63f51a9a83388acfcc4ee57cb",
+        "0018-guard-wake-sample-consumption.patch": "c5d739a163353b7c51bc2e5428188fdb86e79b585838140d33529a8bc488701d",
+        "0019-default-low-latency-policy.patch": "90b2a19a6e312ecb70919d469af228a0460955b4b404dd96a30d445659f99d41",
+        "0020-runtime-optin-latency-policy.patch": "47f7730386d2bf85acf495dd07c633af907437d12ca42dc8253cc41928103ca3",
+        "0021-selectable-mandatory-csc-pq-scale.patch": "2496ca72593ecf3e3ab287b73b1330da20b9744f5be403f605a54fdd3fa64188",
+        "0022-precisetimer-clamp-nonpositive-deadline.patch": "c0629db297888923c198194eec7208e92e695dfc42d6355b2aac5fc045efd349"
       }
     },
     {

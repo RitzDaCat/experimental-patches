@@ -1,8 +1,8 @@
 # Current CachyOS and upstream test targets
 
 Checked 2026-11-02 against public package listings and exact source
-identities. Kernel ports are available for CachyOS 7.3 and TJ development;
-KWin still needs a port. `current` in `index.json` means the newest series
+identities. Kernel ports are available for CachyOS 7.3 and TJ development,
+and KWin is ported to 6.8.2. `current` in `index.json` means the newest series
 in this collection; whether it fits the current distribution is tracked
 here.
 
@@ -13,7 +13,7 @@ here.
 | `tj-sched-ext` | TJ `for-next`, `f7008fb94ee0` | [for-next `series.all`](../kernel/sched-ext-tj/for-next/) | Strict apply; affected objects with proxy execution enabled |
 | `scx-cake` | Cake `1.2.2` in scx-scheds `1.1.4-1` | [Release identity](../scheduler/scx-cake/v1.2.2/) | Strict apply; Cargo manifest/lockfile identity matches |
 | `scx-cake-nightly` | Public nightly `ff4212ae14a3`, Cake `1.3.0` | [Nightly identity](../scheduler/scx-cake/nightly/) | Public pin refreshed; applies and builds |
-| `kwin` | `6.8.1-1.1` | KWin 6.7.5 donor | Port required; reduced stack fails at wake instrumentation |
+| `kwin` | `6.8.2-1.1` | [v6.8.2](../compositor/kwin/v6.8.2/) | Strict apply; patched KWin compiles and its patched-path tests pass; not packaged or run |
 | `goxlr` | Package `1.2.4-3`, source `v1.2.4` | [v1.2.4](../audio/goxlr-utility/v1.2.4/) | Current source; complete series applies |
 | `mangohud` | Package `0.8.4-1.1`, source `v0.8.4` | [v0.8.4](../tools/mangohud/v0.8.4/) | Current source; complete series applies |
 
@@ -30,7 +30,7 @@ defaults are identity only; target audits explicitly select `series.all`.
 
 [`targets.json`](targets.json) records exact source identities, public tracking
 refs/packages, pristine touched-file hashes, absent files, selected series and
-patch hashes. KWin's `patch_set` is explicitly an older donor, not support for 6.8.1.
+patch hashes.
 
 ```bash
 # From this collection's root:
@@ -67,7 +67,7 @@ configs and build receipts under gitignored `artifacts/check-compatibility/`.
 
 - Kernel: [CachyOS 7.3.1-1 source](https://github.com/CachyOS/linux/tree/cachyos-7.3.1-1), [release](https://github.com/CachyOS/linux/releases/tag/cachyos-7.3.1-1), [znver4 packages](https://mirror.cachyos.org/repo/x86_64_v4/cachyos-znver4/).
 - TJ: [canonical source](https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/) and [kernel.googlesource mirror](https://kernel.googlesource.com/pub/scm/linux/kernel/git/tj/sched_ext/). Branches and commits are explicit; default `master` is not substituted.
-- KWin/MangoHud: [optimized packages](https://mirror.cachyos.org/repo/x86_64_v4/cachyos-extra-znver4/), [KWin release](https://download.kde.org/stable/plasma/6.8.1/), [MangoHud v0.8.4](https://github.com/flightlessmango/MangoHud/tree/v0.8.4).
+- KWin/MangoHud: [optimized packages](https://mirror.cachyos.org/repo/x86_64_v4/cachyos-extra-znver4/), [KWin release](https://download.kde.org/stable/plasma/6.8.2/), [MangoHud v0.8.4](https://github.com/flightlessmango/MangoHud/tree/v0.8.4).
 - GoXLR: [CachyOS packages](https://mirror.cachyos.org/repo/x86_64/cachyos/) and [v1.2.4](https://github.com/GoXLR-on-Linux/goxlr-utility/tree/v1.2.4).
 - Scheduler: [CachyOS recipe](https://github.com/CachyOS/CachyOS-PKGBUILDS/blob/master/scx/scx-scheds/scx-scheds/PKGBUILD), [scx v1.1.4](https://github.com/sched-ext/scx/tree/v1.1.4), [public nightly](https://github.com/RitzDaCat/scx/tree/RitzDaCat/scx_cake-nightly).
 
@@ -76,21 +76,17 @@ the published tag `cachyos-7.3.1-1`, the pinned source. Package releases such
 as `7.3.0-4` and `7.3.0-5` had no source tag of their own; a package release
 without a tag is checked against the nearest tag before it.
 
-## Remaining KWin port
+## KWin
 
-All 21 entries were accounted for against exact 6.8.1 source. Patches 1/2 are
-upstream; 13 is superseded by upstream plane-color pipeline enablement. The
-reduced ordered stack fails at 3. Patch 7 applies in isolation; the other 17
-applicable isolated probes fail, including dependent patches. The older
-[6.8 assessment](../compositor/kwin/v6.7.5/docs/PATCH_REVIEW_6.8_2026-10-07.md)
-provides context; current application results use 6.8.1.
-
-Port in dependency order: render-loop telemetry/controllers/opt-in while
-preserving `presentNotBefore`; CPU/GPU render-time and VRR plumbing; capture,
-scanout and commit correlation; color fixes/caches and explicit compensation
-opt-in; then dependencies, package identity, overlays and installer gates.
-Compensation needs its own gate now that plane pipelines are enabled upstream.
-Do not use the 6.7.5 bundle to replace a Plasma 6.8 compositor.
+The series was ported to the exact 6.8.2 source as revision 26. All 18 patches
+apply in order with no fuzz. Patches 1/2 are upstream in 6.8 and were removed;
+13 is obsolete because 6.8.2 requests the DRM plane colour pipeline only with
+`KWIN_DRM_USE_COLOR_PIPELINE=1`, so the compensation in 16/21 stays opt-in
+through that switch. 15 is not ported; it waits for a benchmark on 6.8. The
+patched KWin compiles and its patched-path tests pass; no package has been
+built, installed or run. See the bundle's
+[6.8 review](../compositor/kwin/v6.8.2/docs/PATCH_REVIEW_6.8_2026-10-07.md),
+section 8.
 
 ## Organization
 

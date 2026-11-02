@@ -17,7 +17,7 @@ jobs:
           python3 scripts/validate.py
           python3 -m unittest discover -s tests -v
       - name: Check bundled KWin tooling and models
-        working-directory: compositor/kwin/v6.7.5
+        working-directory: compositor/kwin/v6.8.2
         run: |
           bash -n PKGBUILD install.sh bin/kwin-latencyctl bin/kwin-latency-game
           python3 -m unittest discover -s tests -v

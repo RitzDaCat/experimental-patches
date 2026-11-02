@@ -23,7 +23,9 @@ Current pass, 2026-11-02:
   applies strictly and the affected objects build; it has not been booted.
 - The TJ for-7.4 and for-next tracks are rebased onto their current heads.
 - The scx_cake nightly identity patch follows the nightly to Cake 1.3.0.
-- KWin 6.8 still needs a port; the included bundle is for KWin 6.7.5.
+- KWin is ported to 6.8.2 (revision 26). The series applies and the patched
+  KWin compiles and passes its patched-path tests; it has not been packaged
+  or run.
 - There is no published CachyOS 7.4 tag yet.
 
 See the [compatibility matrix](compatibility/) and the
@@ -54,7 +56,7 @@ Before you test, make sure that:
 | Kernel | [sched-ext upstream candidates](kernel/sched-ext/upstream/) | CachyOS 7.2.9-1 | the two measured wins (bitops kfuncs, lean idle), each standalone, for review | each applies and compiles alone; not for testers: no identity patch |
 | Scheduler | [scx_cake release identity](scheduler/scx-cake/v1.2.2/) | scx-scheds 1.1.4, Cake 1.2.2 | CachyOS release source; identity only | applies; refreshed series not built |
 | Scheduler | [scx_cake nightly identity](scheduler/scx-cake/nightly/) | public scx_cake-nightly ff4212ae14a3, Cake 1.3.0 | uses kernel patches 1, 2 and 4; falls back on a stock kernel | applies and builds |
-| Compositor | [kwin](compositor/kwin/) | KWin 6.7.5 | the compositor wakes later and more precisely | 21 patches with installer, opt-in, capture and rollback tools; no input-to-photon gain shown |
+| Compositor | [kwin](compositor/kwin/) | KWin 6.8.2 | the compositor wakes later and more precisely | 18 patches with installer, opt-in, capture and rollback tools; no input-to-photon gain shown |
 | Audio | [goxlr-utility](audio/goxlr-utility/v1.2.4/) | v1.2.4 | no buffer allocation per sampler read | builds; not tested live |
 | Tools | [mangohud](tools/mangohud/v0.8.4/) | v0.8.4 | control socket fixes | in daily use on the author's machine |
 
@@ -128,7 +130,7 @@ during the final apply can leave partial changes.
 New kernel ports apply the identity patch only by default while boot tests
 are pending. Pass --series series.all for every feature.
 
-For KWin, follow its [bundled guide](compositor/kwin/v6.7.5/TESTING.md) and
+For KWin, follow its [bundled guide](compositor/kwin/v6.8.2/TESTING.md) and
 use its installer, which keeps the install and recovery checks.
 
 ## Rules for this repo

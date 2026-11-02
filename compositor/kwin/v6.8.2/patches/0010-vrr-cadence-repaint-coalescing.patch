@@ -1,0 +1,190 @@
+
+---
+ src/core/renderloop.cpp | 74 ++++++++++++++++++++++++++++++-----------
+ src/core/renderloop.h   |  8 +++++
+ src/core/renderloop_p.h |  4 +++
+ 3 files changed, 66 insertions(+), 20 deletions(-)
+
+diff --git a/src/core/renderloop.cpp b/src/core/renderloop.cpp
+index 034b4e0dfb56fcdd662822b9b4d7018422abae69..fe7196ddb1a85eb9204542bf2d759b9b57810467 100644
+--- a/src/core/renderloop.cpp
++++ b/src/core/renderloop.cpp
+@@ -47,6 +47,9 @@ static const std::chrono::microseconds s_schedulerMargin{
+ static const int s_schedulerMarginMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_COMPOSITOR_MARGIN").value_or(0), 0, 2) : 0;
+ // 0 = stock, 1 = shadow (learn but don't apply), 2 = adaptive.
+ static const int s_renderBudgetMode = s_experimentKernelAllowed ? std::clamp(environmentVariableIntValue("KWIN_ADAPTIVE_RENDER_BUDGET").value_or(0), 0, 2) : 0;
++// Coalesce non-foreground VRR damage to the active surface's measured cadence.
++// The exact-kernel gate and an explicit opt-in are both required.
++static const bool s_vrrRepaintCoalescing = s_experimentKernelAllowed && qEnvironmentVariableIntValue("KWIN_VRR_REPAINT_COALESCING") == 1;
+ static constexpr unsigned int s_adaptiveMarginWindowSize = 256;
+ static constexpr unsigned int s_adaptiveExternalStallFallbackCount = 2;
+ static constexpr unsigned int s_adaptiveRenderBudgetWindowSize = 128;
+@@ -86,6 +89,12 @@ RenderLoopPrivate::RenderLoopPrivate(RenderLoop *q, BackendOutput *output)
+     QObject::connect(&compositeTimer, &PreciseTimer::timeout, q, [this] {
+         dispatch();
+     });
++    if (s_vrrRepaintCoalescing) {
++        coalescedVrrTimer = std::make_unique<PreciseTimer>();
++        QObject::connect(coalescedVrrTimer.get(), &PreciseTimer::timeout, q, [this] {
++            this->q->scheduleRepaint(nullptr, nullptr);
++        });
++    }
+ }
+ 
+ static std::chrono::nanoseconds renderBudgetFloor(std::chrono::nanoseconds refreshDuration)
+@@ -227,6 +236,27 @@ void RenderLoopPrivate::updateAdaptiveRenderBudget(AdaptiveMarginPath path, std:
+     closeWindow();
+ }
+ 
++void RenderLoopPrivate::startDelayedVrrTimer(std::chrono::nanoseconds foregroundFrameTime)
++{
++    if (s_vrrRepaintCoalescing) {
++        const auto foregroundCadence = std::max(foregroundFrameTime, outputRefreshDuration(refreshRate));
++        const auto currentTime = std::chrono::steady_clock::now().time_since_epoch();
++        coalescedVrrTimer->start(std::max(lastPresentationTimestamp + foregroundCadence, currentTime));
++    } else {
++        constexpr std::chrono::milliseconds s_delayVrrTimer = 1'000ms / 30;
++        delayedVrrTimer.start(s_delayVrrTimer, Qt::PreciseTimer, q);
++    }
++}
++
++void RenderLoopPrivate::stopDelayedVrrTimer()
++{
++    if (s_vrrRepaintCoalescing) {
++        coalescedVrrTimer->stop();
++    } else {
++        delayedVrrTimer.stop();
++    }
++}
++
+ std::chrono::nanoseconds RenderLoopPrivate::compositorSchedulingMargin() const
+ {
+     return s_schedulerMarginMode == 2 ? adaptiveMarginState(adaptiveMarginPath(presentationMode)).margin : s_schedulerMargin;
+@@ -630,13 +660,16 @@ void RenderLoop::scheduleRepaint(Item *item, OutputLayer *outputLayer, std::opti
+     if (d->preparingNewFrame) {
+         return;
+     }
+-    const auto surfaceItem = repaintDriver();
+-    if ((item || outputLayer) && d->output && surfaceItem && item != surfaceItem && (!item || !surfaceItem->isAncestorOf(item))) {
+-        constexpr std::chrono::milliseconds s_delayVrrTimer = 1'000ms / 30;
+-        d->delayedVrrTimer.start(s_delayVrrTimer, Qt::PreciseTimer, this);
+-        return;
++    if ((item || outputLayer) && d->output) {
++        if (const auto foregroundFrameTime = activeWindowFrameTimeEstimation()) {
++            Item *const driver = workspace()->activeWindow()->windowItem();
++            if (item != driver && (!item || !driver->isAncestorOf(item))) {
++                d->startDelayedVrrTimer(*foregroundFrameTime);
++                return;
++            }
++        }
+     }
+-    d->delayedVrrTimer.stop();
++    d->stopDelayedVrrTimer();
+ 
+     const bool vrr = d->presentationMode == PresentationMode::AdaptiveSync || d->presentationMode == PresentationMode::AdaptiveAsync;
+     const bool tearing = d->presentationMode == PresentationMode::Async || d->presentationMode == PresentationMode::AdaptiveAsync;
+@@ -651,34 +684,35 @@ void RenderLoop::scheduleRepaint(Item *item, OutputLayer *outputLayer, std::opti
+ }
+ 
+ Item *RenderLoop::repaintDriver() const
++{
++    return activeWindowFrameTimeEstimation() ? workspace()->activeWindow()->windowItem() : nullptr;
++}
++
++std::optional<std::chrono::nanoseconds> RenderLoop::activeWindowFrameTimeEstimation() const
+ {
+     if (Q_UNLIKELY(!workspace())) {
+-        return nullptr;
++        return std::nullopt;
+     }
+ 
+     const bool vrr = d->presentationMode == PresentationMode::AdaptiveSync || d->presentationMode == PresentationMode::AdaptiveAsync;
+     const bool tearing = d->presentationMode == PresentationMode::Async || d->presentationMode == PresentationMode::AdaptiveAsync;
+     if (!vrr && !tearing) {
+-        return nullptr;
++        return std::nullopt;
+     }
+ 
+     Window *const activeWindow = workspace()->activeWindow();
+     LogicalOutput *logical = workspace()->findOutput(d->output);
+     if (!logical) {
+-        return nullptr;
++        return std::nullopt;
+     }
+-
+-    const bool control = activeWindow
+-        && activeWindow->frameGeometry().intersects(logical->geometryF())
+-        && activeWindow->surfaceItem()
+-        && activeWindow->surfaceItem()->recursiveFrameTimeEstimation().transform([](const auto t) {
+-        return t <= std::chrono::nanoseconds(1'000'000'000) / 30;
+-    }).value_or(false);
+-    if (control) {
+-        return activeWindow->windowItem();
+-    } else {
+-        return nullptr;
++    if (!activeWindow
++        || !activeWindow->frameGeometry().intersects(logical->geometryF())
++        || !activeWindow->surfaceItem()) {
++        return std::nullopt;
+     }
++    const auto frameTime = activeWindow->surfaceItem()->recursiveFrameTimeEstimation();
++    constexpr auto activeCadenceLimit = std::chrono::nanoseconds(1'000'000'000) / 30;
++    return frameTime && *frameTime <= activeCadenceLimit ? frameTime : std::nullopt;
+ }
+ 
+ std::chrono::nanoseconds RenderLoop::lastPresentationTimestamp() const
+diff --git a/src/core/renderloop.h b/src/core/renderloop.h
+index c70c9f104892d7e33aceecd0b58e989924d2cdf4..922d4dcd231160f97ba150ac87a0fb03a8a55ae4 100644
+--- a/src/core/renderloop.h
++++ b/src/core/renderloop.h
+@@ -10,6 +10,8 @@
+ 
+ #include <QObject>
+ 
++#include <optional>
++
+ namespace KWin
+ {
+ 
+@@ -107,6 +109,12 @@ public:
+      */
+     Item *repaintDriver() const;
+ 
++    /**
++     * Returns the measured frame cadence when the active window on this output is
++     * driving VRR, or nullopt when it should not control refresh timing.
++     */
++    std::optional<std::chrono::nanoseconds> activeWindowFrameTimeEstimation() const;
++
+     void timerEvent(QTimerEvent *event) override;
+ 
+ Q_SIGNALS:
+diff --git a/src/core/renderloop_p.h b/src/core/renderloop_p.h
+index d2732b47aaa099d54210072574c3acaf2d1644bc..9ea643bd1d72c6a9e13af0bf83a46bcc16364a39 100644
+--- a/src/core/renderloop_p.h
++++ b/src/core/renderloop_p.h
+@@ -18,6 +18,7 @@
+ #include <cstdint>
+ #include <fstream>
+ #include <limits>
++#include <memory>
+ #include <optional>
+ 
+ namespace KWin
+@@ -63,6 +64,8 @@ public:
+ 
+     void dispatch();
+ 
++    void startDelayedVrrTimer(std::chrono::nanoseconds foregroundFrameTime);
++    void stopDelayedVrrTimer();
+     std::chrono::nanoseconds compositorSchedulingMargin() const;
+     static AdaptiveMarginPath adaptiveMarginPath(PresentationMode mode);
+     AdaptiveMarginState &adaptiveMarginState(AdaptiveMarginPath path);
+@@ -120,6 +123,7 @@ public:
+     int maxPendingFrameCount = 1;
+ 
+     QBasicTimer delayedVrrTimer;
++    std::unique_ptr<PreciseTimer> coalescedVrrTimer;
+ };
+ 
+ } // namespace KWin

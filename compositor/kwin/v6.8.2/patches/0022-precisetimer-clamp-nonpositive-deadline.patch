@@ -1,0 +1,33 @@
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 12:00:00 -0600
+Subject: [PATCH] utils/precisetimer: arm non-positive deadlines
+
+timerfd_settime() disarms the timer when it_value is zero and fails with
+EINVAL for a negative value, which PreciseTimer::start() turns into
+qFatal(). Clamp a deadline at or before the monotonic epoch to 1 ns so the
+timer arms and expires at once, as a past deadline should.
+
+Split out of 0019 for KWin 6.8; it does not depend on the rest of the
+series.
+---
+ src/utils/precisetimer.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/utils/precisetimer.cpp b/src/utils/precisetimer.cpp
+index 7e274547a221aac04544004bcfd3420275b8c371..14db9b46d72ea0eab2f4269741f71e4ee844790e 100644
+--- a/src/utils/precisetimer.cpp
++++ b/src/utils/precisetimer.cpp
+@@ -43,6 +43,13 @@ void PreciseTimer::start(std::chrono::nanoseconds deadline)
+ {
+     drain();
+ 
++    // timerfd disarms on it_value == {0,0} and rejects negative values, so a
++    // deadline at or before the monotonic epoch must clamp to 1ns to arm and
++    // expire immediately instead of never firing (or aborting in qFatal).
++    if (deadline <= std::chrono::nanoseconds::zero()) {
++        deadline = std::chrono::nanoseconds(1);
++    }
++
+     const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(deadline);
+     const auto nanoseconds = deadline - seconds;
+     itimerspec spec = {};

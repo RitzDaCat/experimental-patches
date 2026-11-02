@@ -19,17 +19,15 @@
     },
     {
       "component": "compositor/kwin",
-      "version": "v6.7.5",
-      "path": "compositor/kwin/v6.7.5/patches",
+      "version": "v6.8.2",
+      "path": "compositor/kwin/v6.8.2/patches",
       "current": true,
       "base": {
-        "archive": "https://download.kde.org/stable/plasma/6.7.5/kwin-6.7.5.tar.xz",
-        "archive_sha256": "6baa910b732d93c48c90f9c1cc685cc93d0b8de0cdf138c24192c045bc3a48e2"
+        "archive": "https://download.kde.org/stable/plasma/6.8.2/kwin-6.8.2.tar.xz",
+        "archive_sha256": "ea5e68d957c7d70abed97222a592d4445fda29129e20942658badd224ee138b4"
       },
       "series": {
         "default": [
-          "0001-precise-timer.patch",
-          "0002-renderloop-timerfd.patch",
           "0003-wakeup-instrumentation.patch",
           "0004-adaptive-wakeup-margin.patch",
           "0005-kernel-release-gate.patch",
@@ -40,15 +38,14 @@
           "0010-vrr-cadence-repaint-coalescing.patch",
           "0011-bounded-latency-capture.patch",
           "0012-reason-coded-capture.patch",
-          "0013-exact-kernel-nvidia-color-pipeline.patch",
           "0014-fix-inverse-srgb-linear-segment.patch",
-          "0015-bounded-color-hot-path-cache.patch",
           "0016-compensate-mandatory-color-pipeline-curves.patch",
           "0017-exact-frame-and-color-capture.patch",
           "0018-guard-wake-sample-consumption.patch",
           "0019-default-low-latency-policy.patch",
           "0020-runtime-optin-latency-policy.patch",
-          "0021-selectable-mandatory-csc-pq-scale.patch"
+          "0021-selectable-mandatory-csc-pq-scale.patch",
+          "0022-precisetimer-clamp-nonpositive-deadline.patch"
         ]
       }
     },

@@ -12,7 +12,7 @@ from urllib.parse import unquote, urlsplit
 from check_compatibility import load_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
-KWIN = ROOT / "compositor/kwin/v6.7.5"
+KWIN = ROOT / "compositor/kwin/v6.8.2"
 # Apply-based builds report a version ending in -exp; KWin uses its package description.
 IDENTITY = "identify-experimental-build.patch"
 

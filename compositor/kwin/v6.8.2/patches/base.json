@@ -1,0 +1,5 @@
+{
+  "archive": "https://download.kde.org/stable/plasma/6.8.2/kwin-6.8.2.tar.xz",
+  "archive_sha256": "ea5e68d957c7d70abed97222a592d4445fda29129e20942658badd224ee138b4",
+  "scope": "SHA-256 of the pristine files touched by the included patches, not the entire source tree"
+}
