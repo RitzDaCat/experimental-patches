@@ -1,35 +1,35 @@
 {
   "schema": 1,
-  "checked_on": "2026-10-22",
+  "checked_on": "2026-11-02",
   "scope": "Exact touched-file source preimages and upstream/package tracking; application is separate from build, boot and measurement.",
   "targets": [
     {
       "id": "cachyos",
       "component": "kernel/sched-ext",
-      "version": "7.3.0-3",
-      "patch_set": "kernel/sched-ext/cachyos-7.3.0",
+      "version": "7.3.1-1",
+      "patch_set": "kernel/sched-ext/cachyos-7.3",
       "status": "applies",
       "base": {
         "repository": "https://github.com/CachyOS/linux",
-        "commit": "eb735bde05756eed779c2e6f4b893a24a83d78e3",
-        "tag": "cachyos-7.3.0-3"
+        "commit": "36ae4c219cfbd02576048c7ca1d366cea5db8034",
+        "tag": "cachyos-7.3.1-1"
       },
       "tracking": [
         {
           "kind": "package",
           "url": "https://mirror.cachyos.org/repo/x86_64_v4/cachyos-znver4/",
           "name": "linux-cachyos",
-          "version": "7.3.0-3"
+          "version": "7.3.1-1"
         },
         {
           "kind": "git",
           "repository": "https://github.com/CachyOS/linux",
-          "ref": "refs/tags/cachyos-7.3.0-3",
-          "commit": "eb735bde05756eed779c2e6f4b893a24a83d78e3"
+          "ref": "refs/tags/cachyos-7.3.1-1",
+          "commit": "36ae4c219cfbd02576048c7ca1d366cea5db8034"
         }
       ],
       "files": {
-        "Makefile": "b355257addd929ebd5785f72e6f926546e97c2a03ca7623623d56532e96ba47e",
+        "Makefile": "a3378acf7332f48e12139f5f34b5c0b909cdec3a9287e2582009252b230205b6",
         "arch/x86/net/bpf_jit_comp.c": "bc6124c6d66e9fc9b810bf738dc2ad9c5181948ee350e5c5ffa81fb843a82e0f",
         "drivers/dma-buf/dma-fence.c": "74cd1f45daba9dd0829f6c48ae4075c632baf2f61e41192959de12bf0ed26ae8",
         "drivers/dma-buf/sync_file.c": "105f0913633a872f85c47120266beedd308bc5192a4d36950240bac2ca87c2fe",
@@ -57,11 +57,11 @@
         "tools/testing/selftests/bpf/progs/scalar_bitops.c"
       ],
       "patches": {
-        "0001-bpf-native-scalar-bitops.patch": "eda4e8d18bf91ecd0f2ce0f079d0228816730f3db990d281b8c47c4dce49bd23",
-        "0002-sched-ext-lean-idle-claim.patch": "c3be40a98c64ea40b25824716c5136b6d025ed373978738456fe55c56290a3a8",
-        "0003-sched-ext-dsq-direct-index.patch": "96dfa23e168e0d4e973108a4af6496cce2799128120551db2b6fb0017f7fb742",
-        "0004-sched-wake-signals.patch": "eef17f1c7abb95257fc7617daaeaa667c8d56f3f698e5565ed715c1aabdd8b5c",
-        "0005-identify-experimental-build.patch": "e2c49644e9878ae17627b92e9ce951622c90ed72b295d723964fc0778d444de0"
+        "0001-bpf-add-native-scalar-bitops.patch": "526237f212b02898dd64e8b3587d0af65228c793d1ece70991c5388692d052a3",
+        "0002-sched_ext-add-lean-idle-claim.patch": "539782ef3b6f8c159a815df86452333df69dc773366474f74f46359f71c46236",
+        "0003-sched_ext-add-direct-DSQ-index.patch": "76bad9551dfcca7653d696542e47718d050a3d26bc2983a832396fe044a47c78",
+        "0004-sched-add-wake-signals.patch": "33e5f3310b169b46c84f950e9ea457c23b50d07b5944ec764fd3e02781c38b06",
+        "0005-localversion-identify-experimental-build.patch": "a5a895315766bee85c1906e153466a6efd7d36bf890e1f28a652e78b81387097"
       },
       "series": "series.all"
     },

@@ -26,7 +26,7 @@ cost on a stock kernel.
 | 3 DSQ direct index | nothing to detect (kernel-side) | hash lookup |
 | 4 wake signals | `SCX_OPS_WAKE_SIGNAL` in BTF + `scx_bpf_task_wake_signal_v1` | `--kernel-signals` unavailable |
 
-Kernel patches are per CachyOS version (`kernel/sched-ext/cachyos-<ver>/`); this scheduler patch
+Kernel patches are per CachyOS minor release (`kernel/sched-ext/cachyos-<minor>/`); this scheduler patch
 is the same for all of them.
 
 ## Build and test

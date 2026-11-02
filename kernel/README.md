@@ -1,17 +1,18 @@
 # Kernel test tracks
 
-| Track | Exact base | Series | Validation on 2026-10-22 |
+| Track | Exact base | Series | Last validation |
 | --- | --- | --- | --- |
-| [CachyOS 7.3](sched-ext/cachyos-7.3.0/) | `cachyos-7.3.0-3`, `eb735bde0575` | `series.all` | Strict apply; 12 affected kernel objects compile; scalar-bitops BPF object and skeleton build |
-| [TJ for 7.4](sched-ext-tj/for-7.4/) | `for-7.4`, `1f5dde349ac2` | `series.all` | Same checks; kernel objects checked with proxy execution off and on |
-| [TJ integration](sched-ext-tj/for-next/) | `for-next`, `6de3fab67de6` | `series.all` | Strict apply and affected-object build; proxy execution enabled |
+| [CachyOS 7.3](sched-ext/cachyos-7.3/) | `cachyos-7.3.1-1`, `36ae4c219cfb` | `series.all` | 2026-11-02: strict apply; 12 affected kernel objects compile. 2026-10-22 on 7.3.0-3: also the scalar-bitops BPF object and skeleton |
+| [TJ for 7.4](sched-ext-tj/for-7.4/) | `for-7.4`, `1f5dde349ac2` | `series.all` | 2026-10-22: same checks as CachyOS 7.3.0-3; kernel objects checked with proxy execution off and on |
+| [TJ integration](sched-ext-tj/for-next/) | `for-next`, `6de3fab67de6` | `series.all` | 2026-10-22: strict apply and affected-object build; proxy execution enabled |
 
 There is no published CachyOS 7.4 tag in this pass. The 7.4 track uses TJ's
 explicit `for-7.4` development branch. Its source Makefile still says
 `7.3.0-rc1`; this is not a released Linux or CachyOS 7.4 kernel.
 
 All tracks contain the same four experiments, rebased separately onto their
-exact source. Older CachyOS 7.2 series retain their original evidence.
+exact source. The CachyOS 7.2 sets are in git history; their evidence is in
+the 7.3 set's test history.
 The standalone [upstream proposals](sched-ext/upstream/) remain separate.
 
 ## Features and series
@@ -38,8 +39,8 @@ targets. It does not mistake an identity-only application for a complete-stack p
 From the collection's root, with matching pristine source:
 
 ```bash
-scripts/apply.sh kernel/sched-ext/cachyos-7.3.0 /path/to/cachyos-7.3.0-3 --series series.all --check
-scripts/apply.sh kernel/sched-ext/cachyos-7.3.0 /path/to/cachyos-7.3.0-3 --series series.all
+scripts/apply.sh kernel/sched-ext/cachyos-7.3 /path/to/cachyos-7.3.1-1 --series series.all --check
+scripts/apply.sh kernel/sched-ext/cachyos-7.3 /path/to/cachyos-7.3.1-1 --series series.all
 
 scripts/apply.sh kernel/sched-ext-tj/for-7.4 /path/to/tj-for-7.4 --series series.all --check
 scripts/apply.sh kernel/sched-ext-tj/for-7.4 /path/to/tj-for-7.4 --series series.all

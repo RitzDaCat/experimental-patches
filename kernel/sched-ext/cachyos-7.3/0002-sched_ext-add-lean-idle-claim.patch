@@ -1,6 +1,8 @@
-Subject: [PATCH 2/4] sched_ext: lean idle claim (K1-K4)
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 13:41:00 -0500
+Subject: [PATCH 2/5] sched_ext: add lean idle claim
 
-Base:   CachyOS release tarball cachyos-7.2.10-1 (Makefile 7.2.10).
 Order:  patch 2 of 4. Each patch assumes the ones before it.
 About:  why it exists and what to expect: README.md next to this file.
 
@@ -14,9 +16,10 @@ Files:
         points the global masks at it for a lean scheduler, and back at the
         allocated masks otherwise, before ops.init() runs.
     K1  scx_idle_lean_claim(): a single-word claim with a precomputed
-        sibling word (scx_idle_lean_sib[]). scx_bpf_test_and_clear_cpu_idle()
-        takes it before RCU, the scheduler lookup and the CPU check; the
-        pick paths take it through scx_idle_test_and_clear_cpu().
+        sibling word (scx_idle_lean_sib[]), taken in
+        scx_idle_test_and_clear_cpu(). The kfunc reaches it after its
+        caller lookup and CPU-membership checks; the pick paths reach it
+        directly.
     K4  scx_idle_lean_update(), called from update_builtin_idle(): tests
         before every write, so the busy transition after a claim only reads.
     K3  with SCX_OPS_LEAN_IDLE_LAZY_SMT, a successful claim leaves the SMT
@@ -27,11 +30,22 @@ Files:
   Switch: scheduler opt-in, so a lean and a regular Cake can be compared on
   one boot. Cake: --lean-idle on|lazy.
 
+Keep single-word idle claims, paired global idle/SMT mask storage, lazy SMT
+clearing and test-before-write transitions. The kfunc retains the current
+implicit caller lookup and CPU-membership checks before the lean claim; the
+7.2 early bypass is not carried across the newer sub-scheduler contract.
+Global masks and <=64 CPUs only; otherwise use the stock path.
+Historical performance results are not measurements of this port.
+---
+ kernel/sched/ext/idle.c     | 143 ++++++++++++++++++++++++++++++++++++
+ kernel/sched/ext/internal.h |  19 ++++-
+ 2 files changed, 161 insertions(+), 1 deletion(-)
+
 diff --git a/kernel/sched/ext/idle.c b/kernel/sched/ext/idle.c
-index fff48c164..ee101b4cf 100644
+index 28ed9e327085..03f4223109a1 100644
 --- a/kernel/sched/ext/idle.c
 +++ b/kernel/sched/ext/idle.c
-@@ -25,6 +25,10 @@ static DEFINE_STATIC_KEY_FALSE(scx_selcpu_topo_llc);
+@@ -26,6 +26,10 @@ static DEFINE_STATIC_KEY_FALSE(scx_selcpu_topo_llc);
  /* Enable/disable NUMA aware optimizations */
  static DEFINE_STATIC_KEY_FALSE(scx_selcpu_topo_numa);
  
@@ -42,7 +56,7 @@ index fff48c164..ee101b4cf 100644
  /*
   * cpumasks to track idle CPUs within each NUMA node.
   *
-@@ -42,6 +46,28 @@ struct scx_idle_cpus {
+@@ -43,6 +47,28 @@ struct scx_idle_cpus {
   */
  static struct scx_idle_cpus scx_idle_global_masks;
  
@@ -71,7 +85,7 @@ index fff48c164..ee101b4cf 100644
  /*
   * Per-node idle cpumasks.
   */
-@@ -76,11 +102,73 @@ static int scx_cpu_node_if_enabled(int cpu)
+@@ -77,11 +103,73 @@ static int scx_cpu_node_if_enabled(int cpu)
  	return cpu_to_node(cpu);
  }
  
@@ -145,7 +159,7 @@ index fff48c164..ee101b4cf 100644
  	/*
  	 * SMT mask should be cleared whether we can claim @cpu or not. The SMT
  	 * cluster is not wholly idle either way. This also prevents
-@@ -682,6 +770,10 @@ void scx_idle_init_masks(void)
+@@ -683,6 +771,10 @@ void scx_idle_init_masks(void)
  	/* Allocate global idle cpumasks */
  	BUG_ON(!alloc_cpumask_var(&scx_idle_global_masks.cpu, GFP_KERNEL));
  	BUG_ON(!alloc_cpumask_var(&scx_idle_global_masks.smt, GFP_KERNEL));
@@ -156,7 +170,7 @@ index fff48c164..ee101b4cf 100644
  
  	/* Allocate per-node idle cpumasks (use nr_node_ids for non-contiguous NUMA nodes) */
  	scx_idle_node_masks = kzalloc_objs(*scx_idle_node_masks, nr_node_ids);
-@@ -712,6 +804,11 @@ static void update_builtin_idle(int cpu, bool idle)
+@@ -713,6 +805,11 @@ static void update_builtin_idle(int cpu, bool idle)
  	int node = scx_cpu_node_if_enabled(cpu);
  	struct cpumask *idle_cpus = idle_cpumask(node)->cpu;
  
@@ -168,7 +182,7 @@ index fff48c164..ee101b4cf 100644
  	assign_cpu(cpu, idle_cpus, idle);
  
  	if (sched_smt_active()) {
-@@ -812,8 +909,42 @@ static void reset_idle_masks(struct sched_ext_ops *ops)
+@@ -857,8 +954,42 @@ static void reset_idle_masks(struct sched_ext_ops *ops)
  	}
  }
  
@@ -211,7 +225,7 @@ index fff48c164..ee101b4cf 100644
  	if (!ops->update_idle || (ops->flags & SCX_OPS_KEEP_BUILTIN_IDLE))
  		static_branch_enable_cpuslocked(&scx_builtin_idle_enabled);
  	else
-@@ -825,10 +956,22 @@ void scx_idle_enable(struct sched_ext_ops *ops)
+@@ -870,10 +1001,22 @@ void scx_idle_enable(struct sched_ext_ops *ops)
  		static_branch_disable_cpuslocked(&scx_builtin_idle_per_node);
  
  	reset_idle_masks(ops);
@@ -234,27 +248,11 @@ index fff48c164..ee101b4cf 100644
  	static_branch_disable(&scx_builtin_idle_enabled);
  	static_branch_disable(&scx_builtin_idle_per_node);
  }
-@@ -1268,6 +1411,15 @@ __bpf_kfunc bool scx_bpf_test_and_clear_cpu_idle(s32 cpu, const struct bpf_prog_
- {
- 	struct scx_sched *sch;
- 
-+	/*
-+	 * Lean mode implies built-in idle tracking on the global masks, which
-+	 * live as long as the kernel: no RCU, scheduler lookup or out-of-line
-+	 * CPU check. An invalid @cpu takes the generic path, which reports it.
-+	 */
-+	if (static_branch_unlikely(&scx_idle_lean) && (u32)cpu < nr_cpu_ids &&
-+	    (u32)cpu < BITS_PER_LONG && READ_ONCE(scx_idle_lean_sib[cpu]))
-+		return scx_idle_lean_claim(cpu);
-+
- 	guard(rcu)();
- 
- 	sch = scx_prog_sched(aux);
 diff --git a/kernel/sched/ext/internal.h b/kernel/sched/ext/internal.h
-index b295991b9..bd6829ce8 100644
+index 352547aedbb7..1f5496abccf0 100644
 --- a/kernel/sched/ext/internal.h
 +++ b/kernel/sched/ext/internal.h
-@@ -184,6 +184,21 @@ enum scx_ops_flags {
+@@ -215,6 +215,21 @@ enum scx_ops_flags {
  	 */
  	SCX_OPS_TID_TO_TASK		= 1LLU << 8,
  
@@ -276,7 +274,7 @@ index b295991b9..bd6829ce8 100644
  	SCX_OPS_ALL_FLAGS		= SCX_OPS_KEEP_BUILTIN_IDLE |
  					  SCX_OPS_ENQ_LAST |
  					  SCX_OPS_ENQ_EXITING |
-@@ -192,7 +207,9 @@ enum scx_ops_flags {
+@@ -223,7 +238,9 @@ enum scx_ops_flags {
  					  SCX_OPS_SWITCH_PARTIAL |
  					  SCX_OPS_BUILTIN_IDLE_PER_NODE |
  					  SCX_OPS_ALWAYS_ENQ_IMMED |

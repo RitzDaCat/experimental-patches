@@ -87,7 +87,7 @@ def main():
     for kernel in sorted((ROOT / "kernel/sched-ext").glob("cachyos-*")):
         proven = kernel / "series.proven"
         names = proven.read_text().splitlines() if proven.is_file() else []
-        if not names or {"0003-sched-ext-dsq-direct-index.patch", "0004-sched-wake-signals.patch"} & set(names):
+        if not names or {"0003-sched_ext-add-direct-DSQ-index.patch", "0004-sched-add-wake-signals.patch"} & set(names):
             errors.append(f"{kernel.relative_to(ROOT)}: series.proven must list the measured wins only")
 
     bundle = KWIN

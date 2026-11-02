@@ -54,79 +54,29 @@
     },
     {
       "component": "kernel/sched-ext",
-      "version": "cachyos-7.3.0",
-      "path": "kernel/sched-ext/cachyos-7.3.0",
+      "version": "cachyos-7.3",
+      "path": "kernel/sched-ext/cachyos-7.3",
       "current": true,
       "base": {
         "repository": "https://github.com/CachyOS/linux",
-        "commit": "eb735bde05756eed779c2e6f4b893a24a83d78e3",
-        "tag": "cachyos-7.3.0-3"
+        "commit": "36ae4c219cfbd02576048c7ca1d366cea5db8034",
+        "tag": "cachyos-7.3.1-1"
       },
       "series": {
         "default": [
-          "0005-identify-experimental-build.patch"
+          "0005-localversion-identify-experimental-build.patch"
         ],
         "all": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0003-sched-ext-dsq-direct-index.patch",
-          "0004-sched-wake-signals.patch",
-          "0005-identify-experimental-build.patch"
+          "0001-bpf-add-native-scalar-bitops.patch",
+          "0002-sched_ext-add-lean-idle-claim.patch",
+          "0003-sched_ext-add-direct-DSQ-index.patch",
+          "0004-sched-add-wake-signals.patch",
+          "0005-localversion-identify-experimental-build.patch"
         ],
         "proven": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0005-identify-experimental-build.patch"
-        ]
-      }
-    },
-    {
-      "component": "kernel/sched-ext",
-      "version": "cachyos-7.2.10",
-      "path": "kernel/sched-ext/cachyos-7.2.10",
-      "current": false,
-      "base": {
-        "repository": "https://github.com/CachyOS/linux",
-        "commit": "11636526a2d2d35ecec28570a6dd75d5e70003bc",
-        "tag": "cachyos-7.2.10-1"
-      },
-      "series": {
-        "default": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0003-sched-ext-dsq-direct-index.patch",
-          "0004-sched-wake-signals.patch",
-          "0005-identify-experimental-build.patch"
-        ],
-        "proven": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0005-identify-experimental-build.patch"
-        ]
-      }
-    },
-    {
-      "component": "kernel/sched-ext",
-      "version": "cachyos-7.2.9",
-      "path": "kernel/sched-ext/cachyos-7.2.9",
-      "current": false,
-      "base": {
-        "repository": "https://github.com/CachyOS/linux",
-        "commit": "65a94cb5c1587a19242fe5a219f03343671f372e",
-        "tag": "cachyos-7.2.9-1"
-      },
-      "series": {
-        "default": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0003-sched-ext-dsq-direct-index.patch",
-          "0004-sched-wake-signals.patch",
-          "0005-identify-experimental-build.patch"
-        ],
-        "proven": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0005-identify-experimental-build.patch"
+          "0001-bpf-add-native-scalar-bitops.patch",
+          "0002-sched_ext-add-lean-idle-claim.patch",
+          "0005-localversion-identify-experimental-build.patch"
         ]
       }
     },

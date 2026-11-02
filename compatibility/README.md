@@ -7,7 +7,7 @@ series; current distro compatibility is tracked here separately.
 
 | Target ID | Source | Selected series | Result |
 | --- | --- | --- | --- |
-| `cachyos` | CachyOS `7.3.0-3`, `eb735bde0575` | [7.3 `series.all`](../kernel/sched-ext/cachyos-7.3.0/) | Strict apply; affected objects and scalar-bitops BPF object/skeleton build |
+| `cachyos` | CachyOS `7.3.1-1`, `36ae4c219cfb` | [7.3 `series.all`](../kernel/sched-ext/cachyos-7.3/) | Strict apply; affected objects build |
 | `tj-7-4` | TJ `for-7.4`, `1f5dde349ac2` | [for-7.4 `series.all`](../kernel/sched-ext-tj/for-7.4/) | Same checks; affected objects with proxy execution off/on |
 | `tj-sched-ext` | TJ `for-next`, `6de3fab67de6` | [for-next `series.all`](../kernel/sched-ext-tj/for-next/) | Strict apply; affected objects with proxy execution enabled |
 | `scx-cake` | Cake `1.2.2` in scx-scheds `1.1.4-1` | [Release identity](../scheduler/scx-cake/v1.2.2/) | Strict apply; Cargo manifest/lockfile identity matches |
@@ -36,7 +36,7 @@ patch hashes. KWin's `patch_set` is explicitly an older donor, not support for 6
 python3 scripts/check_compatibility.py --list
 python3 scripts/check_compatibility.py --updates \
     --output artifacts/check-compatibility/updates.json
-python3 scripts/check_compatibility.py cachyos /path/to/cachyos-7.3.0-3 \
+python3 scripts/check_compatibility.py cachyos /path/to/cachyos-7.3.1-1 \
     --output artifacts/check-compatibility/cachyos.json
 python3 scripts/check_compatibility.py tj-7-4 /path/to/tj-for-7.4 \
     --output artifacts/check-compatibility/tj-7-4.json
@@ -64,20 +64,16 @@ configs and build receipts under gitignored `artifacts/check-compatibility/`.
 
 ## Source authority
 
-- Kernel: [CachyOS 7.3.0-3 source](https://github.com/CachyOS/linux/tree/cachyos-7.3.0-3), [release](https://github.com/CachyOS/linux/releases/tag/cachyos-7.3.0-3), [znver4 packages](https://mirror.cachyos.org/repo/x86_64_v4/cachyos-znver4/).
+- Kernel: [CachyOS 7.3.1-1 source](https://github.com/CachyOS/linux/tree/cachyos-7.3.1-1), [release](https://github.com/CachyOS/linux/releases/tag/cachyos-7.3.1-1), [znver4 packages](https://mirror.cachyos.org/repo/x86_64_v4/cachyos-znver4/).
 - TJ: [canonical source](https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/) and [kernel.googlesource mirror](https://kernel.googlesource.com/pub/scm/linux/kernel/git/tj/sched_ext/). Branches and commits are explicit; default `master` is not substituted.
 - KWin/MangoHud: [optimized packages](https://mirror.cachyos.org/repo/x86_64_v4/cachyos-extra-znver4/), [KWin release](https://download.kde.org/stable/plasma/6.8.1/), [MangoHud v0.8.4](https://github.com/flightlessmango/MangoHud/tree/v0.8.4).
 - GoXLR: [CachyOS packages](https://mirror.cachyos.org/repo/x86_64/cachyos/) and [v1.2.4](https://github.com/GoXLR-on-Linux/goxlr-utility/tree/v1.2.4).
 - Scheduler: [CachyOS recipe](https://github.com/CachyOS/CachyOS-PKGBUILDS/blob/master/scx/scx-scheds/scx-scheds/PKGBUILD), [scx v1.1.4](https://github.com/sched-ext/scx/tree/v1.1.4), [public nightly](https://github.com/RitzDaCat/scx/tree/RitzDaCat/scx_cake-nightly).
 
-The generic mirror advertised kernel `7.2.7-1`; optimized znver4 initially
-advertised `7.3.0-3`, while local pacman metadata lagged at `7.3.0-2`.
-During the final check, znver4 moved to package `7.3.0-4`. No corresponding
-source tag/release was published, and the public build recipe still names
-`7.3.0-2`. The tested source pin remains published `cachyos-7.3.0-3`;
-compatibility with the package now advertised as `7.3.0-4` is unresolved until
-its source identity is established. `--updates` reports this drift alongside
-the pending KWin port. The system package database was not refreshed or modified.
+On 2026-11-02 the znver4 mirror ships `linux-cachyos 7.3.1-1`, which matches
+the published tag `cachyos-7.3.1-1`, the pinned source. Package releases such
+as `7.3.0-4` and `7.3.0-5` had no source tag of their own; a package release
+without a tag is checked against the nearest tag before it.
 
 ## Remaining KWin port
 

@@ -1,6 +1,0 @@
-# Everything the maintainer runs: proven 1-2, unproven 3-4, identity 5.
-0001-bpf-native-scalar-bitops.patch
-0002-sched-ext-lean-idle-claim.patch
-0003-sched-ext-dsq-direct-index.patch
-0004-sched-wake-signals.patch
-0005-identify-experimental-build.patch

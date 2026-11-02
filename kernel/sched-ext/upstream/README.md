@@ -19,7 +19,7 @@ Neither needs the other, the DSQ index or the wake-signal patches.
 | Booted and measured | ✅ (as part of the 1–4 series) | ✅ (as part of the 1–4 series) |
 | Applies to mainline 7.3-rc5 | ❌ port needed | ❌ port needed |
 
-These match patches 1 and 2 of the tester sets (`cachyos-<ver>/`), commit message aside: lean idle
+These match patches 1 and 2 of the tester sets (`cachyos-<minor>/`), commit message aside: lean idle
 uses ops-flag bits 9 and 10 in both, and cake reads them from BTF by name.
 
 ## Open before a mailing-list send

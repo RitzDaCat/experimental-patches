@@ -22,14 +22,13 @@ flowchart LR
 Some entries are fixes or upstream backports; most have **no proven game-performance benefit
 yet**. Each patch set states its evidence and limitations.
 
-**Current pass (2026-10-22):** full kernel ports are available for CachyOS
-`7.3.0-3` and TJ's `for-7.4` / `for-next` development branches. They pass strict
-application and affected-object build checks; boot/runtime tests remain open.
-KWin `6.8.1-1.1` still needs a port. GoXLR and MangoHud match current package
-sources. See the [compatibility matrix](compatibility/) and
-[kernel test tracks](kernel/). There is no published CachyOS 7.4 tag yet.
-The final mirror check advertised package `7.3.0-4` without a corresponding
-published source identity; the tested 7.3 source pin remains `7.3.0-3`.
+**Current pass (2026-11-02):** the CachyOS kernel set covers all of 7.3 and is
+pinned to `7.3.1-1`. Its touched files did not change from `7.3.0-3`, so the
+series carried over as is; it passes strict application and affected-object
+builds, and boot/runtime tests remain open. The TJ `for-7.4` / `for-next` ports
+date from 2026-10-22. KWin 6.8 still needs a port. See the
+[compatibility matrix](compatibility/) and [kernel test tracks](kernel/).
+There is no published CachyOS 7.4 tag yet.
 
 ---
 
@@ -51,7 +50,7 @@ published source identity; the tested 7.3 source pin remains `7.3.0-3`.
 
 | Area | Patch set | Base | In short | Status |
 | --- | --- | --- | --- | --- |
-| Kernel | [sched-ext 7.3](kernel/sched-ext/cachyos-7.3.0/) | CachyOS 7.3.0-3 | bitops, lean idle, DSQ indexing, wake signals | `series.all` = all features; strict apply + affected objects + BPF test object build; unbooted, unmeasured |
+| Kernel | [sched-ext 7.3](kernel/sched-ext/cachyos-7.3/) | CachyOS 7.3.1-1 | bitops, lean idle, DSQ indexing, wake signals | `series.all` = all features; strict apply + affected objects on 7.3.1-1 (BPF test object on 7.3.0-3); unbooted, unmeasured |
 | Kernel | [TJ development tracks](kernel/sched-ext-tj/) | pinned `for-7.4` and `for-next` | all four features rebased onto upstream development | strict apply + affected-object builds; separate source pins; unbooted |
 | 🐧 Kernel | [sched-ext upstream candidates](kernel/sched-ext/upstream/) | CachyOS 7.2.9-1 | the two measured wins (bitops kfuncs, lean idle), each standalone, for review | applies + compiles alone · not for testers: no identity patch |
 | Scheduler | [scx_cake release identity](scheduler/scx-cake/v1.2.2/) | scx-scheds 1.1.4 / Cake 1.2.2 | current CachyOS release source; identity only | strict application passes; refreshed series not built |
