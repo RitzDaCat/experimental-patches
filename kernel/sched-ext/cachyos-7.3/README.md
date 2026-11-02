@@ -7,8 +7,9 @@ can use the new kfuncs and flags.
 
 The set covers every CachyOS 7.3 release. base.json pins the newest one that
 was checked; the table below lists every release the series was verified on.
-The patches are exported from branch exp/7.3 of the maintainer's kernel fork
-with scripts/export_series.py, so do not edit them here by hand.
+The patches are exported from branch exp/7.3 of the kernel fork
+[RitzDaCat/linux-exp](https://github.com/RitzDaCat/linux-exp) with
+scripts/export_series.py, so do not edit them here by hand.
 
 | CachyOS tag | Base commit | Result |
 | --- | --- | --- |

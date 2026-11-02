@@ -1,27 +1,17 @@
-<div align="center">
-
 # Linux Interactive Latency
 
-**An experimental KWin build that wakes the compositor later and more precisely,
-so a frame carries fresher input.**
+An experimental KWin build that wakes the compositor later and more precisely,
+so a frame carries fresher input. KWin package 6.7.5-3.1, experiment revision
+25, Arch Linux.
 
-![Status: experimental](https://img.shields.io/badge/status-experimental-c98200)
-![KWin package: 6.7.5-3.1](https://img.shields.io/badge/KWin_package-6.7.5--3.1-0969da)
-![Experiment revision: 25](https://img.shields.io/badge/experiment_revision-25-8250df)
-![Tests: passing](https://img.shields.io/badge/tests-passing-1f883d)
-![Platform: Arch Linux](https://img.shields.io/badge/platform-Arch_Linux-1793d1)
+Warning: This replaces a core desktop component. Do not install it without a rollback
+path you have tested. `install.sh` refuses to run unless a signed stock `kwin`
+package is already in your pacman cache, because a compositor that will not
+start is exactly when you cannot download one.
 
-</div>
-
-> [!WARNING]
-> This replaces a core desktop component. Do not install it without a rollback
-> path you have tested. `install.sh` refuses to run unless a signed stock `kwin`
-> package is already in your pacman cache, because a compositor that will not
-> start is exactly when you cannot download one.
->
-> Live kernel `dma_fence` tracing is prohibited here. It caused a kernel
-> NULL-pointer fault on `7.1.4-1-cachyos`. See the
-> [incident report](docs/INCIDENT_2026-07-23_DMA_FENCE_TRACE_KERNEL_OOPS.md).
+Live kernel `dma_fence` tracing is prohibited here. It caused a kernel
+NULL-pointer fault on `7.1.4-1-cachyos`. See the
+[incident report](docs/INCIDENT_2026-07-23_DMA_FENCE_TRACE_KERNEL_OOPS.md).
 
 ## What this is
 
@@ -42,7 +32,7 @@ Being blunt about this matters more than the badges.
 | The stock delay is truncated to whole milliseconds and carries a fixed 1 ms allowance | Shown, from KWin 6.7.5 source |
 | Precise wake delivery and per-output timing distributions | Measured, by instrumented capture |
 | Controller behaviour on a captured wake distribution | Shown, by offline replay |
-| **A measured input-to-photon improvement** | **Not shown.** No physical measurement exists yet |
+| A measured input-to-photon improvement | Not shown: No physical measurement exists yet |
 
 The charts, the replay numbers, and the full claim table live in
 [docs/SCHEDULING_MODEL_AND_CLAIMS.md](docs/SCHEDULING_MODEL_AND_CLAIMS.md). The
@@ -51,8 +41,8 @@ plan to close the measurement gap is in
 
 ## Quick start
 
-The full tester path — install, verify, activate globally or per game, run a
-fair comparison, report, recover — is in [TESTING.md](TESTING.md).
+The full tester path -- install, verify, activate globally or per game, run a
+fair comparison, report, recover -- is in [TESTING.md](TESTING.md).
 
 Read-only checks first. Neither changes system state.
 
@@ -80,7 +70,7 @@ Confirm after the restart.
 ```
 
 Since revision 22 the install changes nothing by itself: the policy is
-**opt-in and off by default**. Turn it on per game (next section) or
+opt-in and off by default. Turn it on per game (next section) or
 session-wide. Both apply live, with no logout.
 
 ```bash
@@ -100,7 +90,7 @@ kwin-latency-game -- %command%
 The wrapper enables the low-latency policy when the game starts and restores
 the exact previous state when it exits, including on a crash or a kill. It
 writes the `[LatencyExperiment]` group in `kwinrc` with change notification,
-and the compositor picks the change up live through `KConfigWatcher` — no
+and the compositor picks the change up live through `KConfigWatcher` -- no
 restart, no logout.
 
 Two limits. SIGKILL cannot be trapped, so a killed wrapper leaves the policy
@@ -142,7 +132,7 @@ sudo pacman -U "$(ls -t /var/cache/pacman/pkg/kwin-[0-9]*.pkg.tar.zst | head -n 
 
 Then reboot. The `kwin-[0-9]*` pattern matters: a bare `kwin-*` also matches
 `kwin-x11` and every older cached version at once, and pacman then fails on
-the conflict — at the worst possible moment. This is why the preflight insists
+the conflict -- at the worst possible moment. This is why the preflight insists
 on a cached package.
 
 If the pacman cache was cleaned since the install, `install.sh` kept a copy of
@@ -158,7 +148,7 @@ Run it from the repository root, or prefix the path with wherever you cloned the
 
 Nineteen behaviours across twenty-one patches, in `patches/` order.
 
-**Wake scheduling**
+Wake scheduling
 
 1. Backports KWin's merged absolute timerfd implementation.
 2. Records desired, armed, and actual compositor wake timestamps per output.
@@ -181,17 +171,17 @@ Nineteen behaviours across twenty-one patches, in `patches/` order.
 18. Makes the policy opt-in and runtime-switchable (revision 22). The adaptive
     margin, the render budget, VRR coalescing, and the scheduler margin read
     live from the `[LatencyExperiment]` group in `kwinrc` through
-    `KConfigWatcher`, and the default is **off**: an installed package uses
+    `KConfigWatcher`, and the default is off: an installed package uses
     stock policy values until a tester opts in. This supersedes the always-on
     part of item 17; the exact-kernel gate stays a hard AND-condition, and
     every environment variable keeps working as the boot-time default.
 
-**VRR and presentation**
+VRR and presentation
 
 8. Replaces the fixed 30 Hz unrelated-damage fallback on an active VRR output
    with an absolute deadline derived from measured foreground cadence.
 
-**Colour pipeline and direct scanout**
+Colour pipeline and direct scanout
 
 10. Enables NVIDIA DRM plane colour pipelines only under the exact-kernel gate
     and NVIDIA driver 610.43.03 or newer.
@@ -211,7 +201,7 @@ Nineteen behaviours across twenty-one patches, in `patches/` order.
     convention is unverifiable from the DRM UAPI alone. See
     [DIRECT_SCANOUT_NVIDIA_INVESTIGATION](docs/DIRECT_SCANOUT_NVIDIA_INVESTIGATION_2026-08-23.md).
 
-**Observation**
+Observation
 
 7. Contains an opt-in input telemetry probe, disabled in the reviewed policy.
 9. Adds one exact-kernel-gated, default-off capture mode for compositor wake,
@@ -246,7 +236,7 @@ flowchart LR
 ## One reviewed policy, opt-in
 
 No preset matrix and no tuning menu. Since revision 22 the reviewed policy is
-compiled into the package but **inactive until a tester opts in**, per game or
+compiled into the package but inactive until a tester opts in, per game or
 per session. Opting in and out applies live through `kwinrc`.
 
 | Component | State while opted in | State while off |
@@ -337,7 +327,7 @@ patches `0001` through `0021`, byte-compares the 35-file patched overlay, and
 validates the newest local package against its pinned checksum and its compiled
 feature markers.
 
-The pristine upstream tree is **not** committed. Verification extracts it from
+The pristine upstream tree is not committed. Verification extracts it from
 the hash-checked release archive, so a fresh clone verifies without it. To keep
 a local copy for browsing:
 
@@ -360,24 +350,24 @@ archive hash, the file boundary, and the comparison commands.
 
 ```text
 .
-├── bin/          Lifecycle command and the per-game Steam wrapper
-├── patches/      Patch series in PKGBUILD order
-├── models/       Executable timing reference models
-├── tools/        Offline analyzers, replay, benchmarks, and bounded probes
-├── scripts/      Provenance and graph verification
-├── tests/        Deterministic policy and lifecycle tests
-├── reference/    Patched overlay; pristine trees are re-vendored locally
-├── docs/         Design, audit, graph data, and SVGs
-├── bench/        Observer-cost microbenchmark
-├── config/       Minimal generated-profile reference
-├── artifacts/    Ignored packages, sources, and test snapshots
-├── Makefile      Short aliases for lifecycle commands
-└── PKGBUILD      Arch package recipe
+|-- bin/          Lifecycle command and the per-game Steam wrapper
+|-- patches/      Patch series in PKGBUILD order
+|-- models/       Executable timing reference models
+|-- tools/        Offline analyzers, replay, benchmarks, and bounded probes
+|-- scripts/      Provenance and graph verification
+|-- tests/        Deterministic policy and lifecycle tests
+|-- reference/    Patched overlay; pristine trees are re-vendored locally
+|-- docs/         Design, audit, graph data, and SVGs
+|-- bench/        Observer-cost microbenchmark
+|-- config/       Minimal generated-profile reference
+|-- artifacts/    Ignored packages, sources, and test snapshots
+|-- Makefile      Short aliases for lifecycle commands
+`-- PKGBUILD      Arch package recipe
 ```
 
 ## Documentation
 
-**Start here**
+Start here
 
 | Document | Covers |
 | --- | --- |
@@ -387,7 +377,7 @@ archive hash, the file boundary, and the comparison commands.
 | [BOUNDED_CAPTURE_MODE](docs/BOUNDED_CAPTURE_MODE.md) | The single capture toggle, schema, and cost boundaries |
 | [PACKAGE_VERSIONING](docs/PACKAGE_VERSIONING.md) | Pacman-safe version ordering and upgrade policy |
 
-**Design and audits**
+Design and audits
 
 | Document | Covers |
 | --- | --- |
@@ -400,7 +390,7 @@ archive hash, the file boundary, and the comparison commands.
 | [LOW_LATENCY_LAYER_COMPARISON](docs/LOW_LATENCY_LAYER_COMPARISON_2026-08-10.md) | How this compares to the Vulkan layer, and per-game toggling |
 | [VRR_TIMING_AUDIT](docs/VRR_TIMING_AUDIT_2026-07-15.md) | Broader render, VRR, DRM, and input audit |
 
-**Colour pipeline and NVIDIA**
+Colour pipeline and NVIDIA
 
 | Document | Covers |
 | --- | --- |
@@ -409,7 +399,7 @@ archive hash, the file boundary, and the comparison commands.
 | [NVIDIA_SDR_HDR_DIRECT_SCANOUT_UPSTREAM_REPORT](docs/NVIDIA_SDR_HDR_DIRECT_SCANOUT_UPSTREAM_REPORT_2026-07-22.md) | Reproduction, matcher failure, upstream relationship |
 | [PURPLE_TINT_COLOR_PIPELINE_REVIEW](docs/PURPLE_TINT_COLOR_PIPELINE_REVIEW_2026-08-08.md) | Negative visual result and ranked colour-error hypotheses |
 
-**Input, observation, incidents**
+Input, observation, incidents
 
 | Document | Covers |
 | --- | --- |
@@ -418,7 +408,7 @@ archive hash, the file boundary, and the comparison commands.
 | [OBSERVER_COST](docs/OBSERVER_COST_2026-07-17.md) | Hot-path audit and nanosecond benchmark |
 | [INCIDENT_DMA_FENCE_TRACE_KERNEL_OOPS](docs/INCIDENT_2026-07-23_DMA_FENCE_TRACE_KERNEL_OOPS.md) | Kernel fault, separation from the KWin crash, trace-safety controls |
 
-**Research, reviews, and historical protocols**
+Research, reviews, and historical protocols
 
 Dated records. They describe the state of the tree on that date and are not
 updated afterwards.
@@ -428,7 +418,7 @@ updated afterwards.
 | [WHOLE_SYSTEM_LATENCY_RESEARCH](docs/WHOLE_SYSTEM_LATENCY_RESEARCH_2026-08-23.md) | Ranked latency levers across games, browsers, and the OS |
 | [DIRECT_SCANOUT_NVIDIA_INVESTIGATION](docs/DIRECT_SCANOUT_NVIDIA_INVESTIGATION_2026-08-23.md) | Root cause of the purple tint and the patch 0021 live test |
 | [END_TO_END_INTERACTIVE_PIPELINE](docs/END_TO_END_INTERACTIVE_PIPELINE.md) | Early whole-pipeline latency and efficiency policy |
-| [PATCH_REVIEW_6.7.4](docs/PATCH_REVIEW_6.7.4_2026-08-06.md) | Patches 0001–0018 checked against KWin 6.7.4 |
+| [PATCH_REVIEW_6.7.4](docs/PATCH_REVIEW_6.7.4_2026-08-06.md) | Patches 0001-0018 checked against KWin 6.7.4 |
 | [PATCH_REVIEW_0021](docs/PATCH_REVIEW_0021_2026-08-27.md) | Review of the selectable CSC PQ scale patch |
 | [PATCH_REVIEW_6.8](docs/PATCH_REVIEW_6.8_2026-10-07.md) | Upstream status of each patch against KWin 6.8 and the rebase plan |
 | [CODE_REVIEW](docs/CODE_REVIEW_2026-08-07.md) | Findings from a full-tree review and their disposition |
@@ -444,10 +434,9 @@ for a result, or its [bug-report form](../../../.github/ISSUE_TEMPLATE/bug-repor
 rollback failure. A null result is data; report "no perceived difference" as
 readily as an improvement, and run the same scene under `disable` as a control.
 
-> [!CAUTION]
-> `snapshot` and `trace` collect USB device lists, monitor EDID data, and
-> package state. Those can carry device serial numbers and your hostname. Read
-> the files and remove what you do not want public before you attach them.
+Caution: `snapshot` and `trace` collect USB device lists, monitor EDID data, and
+package state. Those can carry device serial numbers and your hostname. Read
+the files and remove what you do not want public before you attach them.
 
 A useful report includes:
 

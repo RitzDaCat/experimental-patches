@@ -1,16 +1,18 @@
-# TJ sched_ext — complete-series testing
+# TJ sched_ext: complete-series testing
 
 Requested source: [TJ sched_ext](https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/).
 All four kernel experiments are ported to two independently pinned development
 bases. KWin, audio and MangoHud are userspace patches and do not apply here.
+The patches are exported from branches exp/tj-for-7.4 and exp/tj-for-next of
+[RitzDaCat/linux-exp](https://github.com/RitzDaCat/linux-exp).
 
 | Track | Commit | Result |
 | --- | --- | --- |
 | [for-7.4](for-7.4/) | `1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338` | Complete series applies; affected objects compile with proxy execution off/on; scalar-bitops BPF object/skeleton builds |
 | [for-next](for-next/) | `f7008fb94ee033c8de9f42ae2bf2911db73c17f9` | Complete series applies; affected objects compile with proxy execution enabled |
 
-The `for-7.4` Makefile reports `7.3.0-rc1` and `for-next` reports `7.3.0`. `for-7.4` names the development branch, not
-a final release. No CachyOS 7.4 tag is published in this pass. Default `master`
+The `for-7.4` Makefile reports `7.3.0-rc1` and `for-next` reports `7.3.0`.
+`for-7.4` names the development branch, not a final release. No CachyOS 7.4 tag is published in this pass. Default `master`
 is not silently substituted for either target.
 
 ## Get and check source
@@ -42,7 +44,7 @@ full-stack exit code is 0; isolated dependent failures are diagnostic.
 
 ## Select features
 
-`series.all` is bitops → lean idle → DSQ index → wake signals → identity.
+`series.all` is bitops, lean idle, direct DSQ index, wake signals, identity.
 Default `series` is identity only until boot validation. `series.proven` is the
 bitops/idle subset whose measurements come from older CachyOS builds, not these ports.
 

@@ -1,4 +1,4 @@
-# sched_ext experiments — TJ for-next
+# sched_ext experiments: TJ for-next
 
 Complete feature series for TJ's integration branch `for-next`, pinned at
 `f7008fb94ee033c8de9f42ae2bf2911db73c17f9`. Its Makefile says `7.3.0`;

@@ -1,6 +1,6 @@
 # KWin
 
-**Current target: KWin 6.8.1-1.1; port required.** The included 6.7.5 series
+Current target: KWin 6.8.1-1.1; port required: The included 6.7.5 series
 does not apply to 6.8.1. See the [compatibility matrix](../../compatibility/)
 for exact results and the port queue. Do not use this older bundle to replace
 a Plasma 6.8 compositor.
@@ -14,7 +14,7 @@ the compositor's install checks and offline rollback path.
 
 | Patch set | Base | In short | Status |
 | --- | --- | --- | --- |
-| [Interactive latency](v6.7.5/) | KWin 6.7.5 | Wake the compositor later and more precisely, so each frame carries fresher input | Wake timing **measured**; input-to-photon gain **not shown** |
+| [Interactive latency](v6.7.5/) | KWin 6.7.5 | Wake the compositor later and more precisely, so each frame carries fresher input | Wake timing measured; input-to-photon gain not shown |
 
 ## Start here
 
@@ -30,7 +30,7 @@ cd compositor/kwin/v6.7.5
 ```
 
 Installation replaces KWin. Restart the desktop afterward, then verify the
-kernel gate and opt-in state with `status`. The experiment defaults **off**;
+kernel gate and opt-in state with `status`. The experiment defaults off;
 enable it per game with `kwin-latency-game -- %command%`, or use the guide's
 session-wide opt-in. Confirm the active/off state in every comparison arm.
 
@@ -44,23 +44,23 @@ adaptations. Source/model checks do not validate this bundle's live compositor.
 
 ## Interactive latency
 
-**What it changes.** KWin decides when to start drawing the next frame. Stock
+What it changes: KWin decides when to start drawing the next frame. Stock
 KWin 6.7.5 adds a fixed 1 ms safety margin and rounds the wait down to whole
 milliseconds. The patched build waits on a precise absolute `timerfd` deadline
 instead, and learns the margin it actually needs for each monitor and display
 path.
 
-**Why.** A compositor that wakes too early draws the frame with older mouse
+Why: A compositor that wakes too early draws the frame with older mouse
 and keyboard input than it could have used. The fixed margin and the rounding
 both make KWin wake earlier than it needs to.
 
-**Expected result.** KWin starts each frame later and closer to its deadline,
+Expected result: KWin starts each frame later and closer to its deadline,
 so the frame shows slightly newer input. Measured so far: the wake-up timing
-itself, per monitor. **Not shown:** an actual input-to-photon improvement. That
+itself, per monitor. Not shown: an actual input-to-photon improvement. That
 needs a physical measurement (a high-speed camera or a photodiode tester),
 which has not been done yet.
 
-**How to test.** Follow the included
+How to test: Follow the included
 [TESTING.md](v6.7.5/TESTING.md):
 install, verify, compare against stock KWin, report, and recover.
 

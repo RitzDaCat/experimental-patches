@@ -1,7 +1,7 @@
 # Licensing
 
 Original documentation, scripts, tests and repository configuration are licensed
-under **GPL-2.0-only**, provided in [LICENSE](LICENSE). Copyright 2026 RitzDaCat.
+under GPL-2.0-only, provided in [LICENSE](LICENSE). Copyright 2026 RitzDaCat.
 Contributions to those files use the same license.
 
 This repository also collects patches and source references from other projects.

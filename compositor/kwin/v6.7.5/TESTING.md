@@ -7,7 +7,7 @@ and get out safely. Each step names the exact command.
 
 A patched KWin that wakes later and more precisely, so a frame carries fresher
 input. No input-to-photon improvement has been measured yet; your report is
-how that gap closes. A null result is data — report "no difference" as readily
+how that gap closes. A null result is data -- report "no difference" as readily
 as an improvement. The claims table is in
 [docs/SCHEDULING_MODEL_AND_CLAIMS.md](docs/SCHEDULING_MODEL_AND_CLAIMS.md).
 
@@ -63,7 +63,7 @@ Read two lines, every time, and again after any system update:
 ./bin/kwin-latencyctl disable
 ```
 
-Both apply live through the compositor's config watcher — no logout. `enable`
+Both apply live through the compositor's config watcher -- no logout. `enable`
 is the single reviewed policy; there are no tuning knobs to sweep.
 
 ## Activate per game from Steam
@@ -79,7 +79,7 @@ The policy turns on when the title starts and the previous state returns when
 it exits, crash included. In a session already opted in, `--off` forces stock
 for one title instead. Two limits: a SIGKILL of the wrapper itself skips the
 restore (`status` shows it, `disable` clears it), and Flatpak Steam cannot see
-the wrapper — use native Steam, or prefix with `flatpak-spawn --host`.
+the wrapper -- use native Steam, or prefix with `flatpak-spawn --host`.
 
 ## Run a fair comparison
 
@@ -97,14 +97,13 @@ Optional evidence to attach:
 ./bin/kwin-latencyctl snapshot mytest
 ```
 
-> [!CAUTION]
-> Snapshots collect USB device lists, monitor EDID data, and package state.
-> Those can carry device serial numbers and your hostname. Read the files and
-> remove what you do not want public before attaching them.
+Caution: Snapshots collect USB device lists, monitor EDID data, and package state.
+Those can carry device serial numbers and your hostname. Read the files and
+remove what you do not want public before attaching them.
 
 ## Report
 
-Open a **Test result** issue for results, good or bad. Open a **Bug / regression**
+Open a Test result issue for results, good or bad. Open a Bug / regression
 issue for anything that failed to build, install, or roll back. Both templates
 ask for the `status` output; paste it unedited.
 

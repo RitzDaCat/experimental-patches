@@ -1,4 +1,4 @@
-# sched_ext experiments — TJ for 7.4
+# sched_ext experiments: TJ for-7.4
 
 All four kernel experiments, plus build identity, against public TJ sched_ext
 branch `for-7.4` at `1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338`.
@@ -18,7 +18,8 @@ scripts/apply.sh kernel/sched-ext-tj/for-7.4 /path/to/tj-for-7.4 --series series
 scripts/apply.sh kernel/sched-ext-tj/for-7.4 /path/to/tj-for-7.4 --series series.all
 ```
 
-`series.all` selects bitops → lean idle → DSQ index → wake signals → identity.
+`series.all` selects bitops, lean idle, direct DSQ index, wake signals and
+identity, in that order.
 The default `series` is identity only until these ports have boot evidence.
 `series.proven` selects bitops, lean idle and identity; its feature evidence
 comes from older CachyOS builds, not this target.

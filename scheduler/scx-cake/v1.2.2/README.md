@@ -1,4 +1,4 @@
-# scx_cake 1.2.2 — CachyOS release source
+# scx_cake 1.2.2: CachyOS release source
 
 Identity patch for scx_cake 1.2.2 in scx-scheds 1.1.4, the current CachyOS
 release checked on 2026-10-22. Source: public

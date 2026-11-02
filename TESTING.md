@@ -1,15 +1,16 @@
 # Testing
 
-Check the [current compatibility matrix](compatibility/) first. New CachyOS 7.3
-and TJ development ports pass application/object-build gates; boot and runtime
-gates remain open. Select `series.all` explicitly for all four kernel features.
-KWin's included 6.7.5 bundle still needs a port to the current 6.8.1 source.
+Check the [compatibility matrix](compatibility/) first. The CachyOS 7.3 and
+TJ development kernel ports apply and their affected objects build; they
+have not been booted or measured. Pass `--series series.all` for all four
+kernel features. The included KWin bundle is for 6.7.5 and still needs a
+port to the current Plasma 6.8 source.
 
 ## Before you start
 
-- **Kernel:** keep your stock kernel installed and in the boot menu. Boot it
+- Kernel: keep your stock kernel installed and in the boot menu. Boot it
   once to make sure it works before you install the patched one.
-- **Userspace (KWin, audio, tools):** keep the stock package in your package
+- Userspace (KWin, audio, tools): keep the stock package in your package
   cache so you can reinstall it offline.
 - Give the patched build its own name (kernel `LOCALVERSION`, package
   identity or recorded build hash), so you can verify what you are running.
@@ -26,8 +27,8 @@ for the stock version. Check it after every install, update and reboot:
 | Patch set | Check | Patched build | Stock build |
 | --- | --- | --- | --- |
 | Kernel | `make kernelrelease`, then `uname -r` after boot | Recorded target release with `-exp` (packaging/config may add other suffixes) | matching stock target without experiment identity |
-| scx_cake release | `scx_cake --version`, `cat /sys/kernel/sched_ext/root/ops` | `scx_cake 1.2.2-exp…`, `cake_1.2.2_exp…` | no `exp` |
-| scx_cake experimental nightly | same checks | `scx_cake 1.3.0-exp…`, `cake_1.3.0_exp…` | no `exp` |
+| scx_cake release | `scx_cake --version`, `cat /sys/kernel/sched_ext/root/ops` | `scx_cake 1.2.2-exp...`, `cake_1.2.2_exp...` | no `exp` |
+| scx_cake experimental nightly | same checks | `scx_cake 1.3.0-exp...`, `cake_1.3.0_exp...` | no `exp` |
 | KWin | `pacman -Qi kwin`, `./bin/kwin-latencyctl status` | Description `KWin 6.7.5 latency experiment revision 25` | Description `An easy to use, but flexible, Wayland compositor` |
 | GoXLR Utility | `goxlr-daemon --version`, daemon log | `goxlr-daemon 1.2.4-exp` | `goxlr-daemon 1.2.4` |
 | MangoHud | `mangohud --version`, overlay version line | `v0.8.4-exp` (`v0.8.4+-exp` from a patched git checkout) | `v0.8.4` |
@@ -62,8 +63,8 @@ too, build a compatible KWin series for the exact release reported by
 
 ## Reporting
 
-Use the **Test result** issue form for gains, no difference, regressions and
-application/build-only results. Use **Bug / regression** for failures. Include:
+Use the Test result issue form for gains, no difference, regressions and
+application/build-only results. Use Bug / regression for failures. Include:
 
 - this collection's commit (`git rev-parse HEAD`), patch set, selected `series`,
   patch filenames, any local changes, and the `-exp` identity check above;
@@ -87,13 +88,13 @@ if the primary metric improves. If a metric was not measured, say so.
 Review attached logs for personal information before posting them publicly.
 
 "No difference" is useful evidence. Reports are reviewed before being linked
-from a patch set's **Tested on** table; missing provenance or raw data stays
+from a patch set's test history table; missing provenance or raw data stays
 explicitly marked. Positive reports support further investigation, not automatic
 upstream acceptance. See [CONTRIBUTING.md](CONTRIBUTING.md#upstream-evidence).
 
 ## Going back
 
-- **Kernel:** pick the stock kernel in the boot menu, then uninstall the
+- Kernel: pick the stock kernel in the boot menu, then uninstall the
   patched one.
-- **Userspace:** reinstall the stock package from your cache
+- Userspace: reinstall the stock package from your cache
   (`pacman -U /var/cache/pacman/pkg/<package>.pkg.tar.zst` on Arch).

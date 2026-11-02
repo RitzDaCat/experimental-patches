@@ -27,8 +27,9 @@ For each update:
 - Check the whole series against fresh matching source and verify its resulting
   files. A compile, boot, daily-use claim and measured gain are distinct gates.
 
-Kernel sets are kept in a kernel fork as one branch per CachyOS minor
-release, `exp/<minor>`, on top of a CachyOS tag, and exported into one
+Kernel sets are kept in the kernel fork
+[RitzDaCat/linux-exp](https://github.com/RitzDaCat/linux-exp) as one branch
+per CachyOS minor release, `exp/<minor>`, on top of a CachyOS tag, and exported into one
 directory per minor, `kernel/sched-ext/cachyos-<minor>/`. Do not edit the
 exported patches by hand. For a new point release:
 
@@ -73,8 +74,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/generate_readme_graphs.py --check
 
 Metadata and fixture tests do not build, boot, install or measure the patches.
 `python3 scripts/check_compatibility.py --updates` performs the separate live
-currentness check; it currently exits 1 for the KWin port and documented
-CachyOS package/source drift.
+check that every tracked source is still current; it exits 1 while the
+KWin port is open.
 Source application checks and per-target commands are in [compatibility/](compatibility/).
 KWin's `bin/kwin-latencyctl test --source-only` additionally verifies the source
 series and 35-file overlay using the hash-pinned public release archive. It may

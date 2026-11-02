@@ -1,9 +1,10 @@
 # Current CachyOS and upstream test targets
 
-Checked 2026-10-22 against public package listings and exact source identities.
-Kernel ports are available for CachyOS 7.3 and TJ development. **KWin still
-requires a port.** `current` in `index.json` means the newest available collection
-series; current distro compatibility is tracked here separately.
+Checked 2026-11-02 against public package listings and exact source
+identities. Kernel ports are available for CachyOS 7.3 and TJ development;
+KWin still needs a port. `current` in `index.json` means the newest series
+in this collection; whether it fits the current distribution is tracked
+here.
 
 | Target ID | Source | Selected series | Result |
 | --- | --- | --- | --- |
