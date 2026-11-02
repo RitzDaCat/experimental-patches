@@ -27,8 +27,28 @@ For each update:
 - Check the whole series against fresh matching source and verify its resulting
   files. A compile, boot, daily-use claim and measured gain are distinct gates.
 
-Use a new version directory when the source base changes. Preserve earlier
-published revisions through Git history.
+Kernel sets are kept in a kernel fork as one branch per CachyOS minor
+release, `exp/<minor>`, on top of a CachyOS tag, and exported into one
+directory per minor, `kernel/sched-ext/cachyos-<minor>/`. Do not edit the
+exported patches by hand. For a new point release:
+
+```bash
+git fetch --depth 1 cachyos tag cachyos-7.3.2-1
+git rebase --onto cachyos-7.3.2-1 cachyos-7.3.1-1 exp/7.3
+git range-diff cachyos-7.3.1-1..exp-7.3.1-1 cachyos-7.3.2-1..exp/7.3
+# build the touched objects (kernel/README.md), then:
+git tag -a exp-7.3.2-1 -m "experimental-patches series on cachyos-7.3.2-1"
+scripts/export_series.py --repo /path/to/fork --base cachyos-7.3.2-1 \
+    --head exp-7.3.2-1 --target cachyos --version 7.3.2-1 kernel/sched-ext/cachyos-7.3
+```
+
+Then add a row to the set's test history. For a new minor, branch
+`exp/<new>` from the last `exp/<minor>`, rebase it onto the first tag of the
+new minor and export into a new directory. Remove a minor's directory once
+nobody runs it; the fork's tags and this collection's history keep it.
+
+For other components, use a new version directory when the source base
+changes and keep earlier revisions in Git history.
 
 Keep the [compatibility targets](compatibility/) in sync: exact source identity,
 pristine touched-file hashes, patch hashes and public tracking refs/packages.
