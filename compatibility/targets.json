@@ -336,7 +336,7 @@
     {
       "id": "goxlr",
       "component": "audio/goxlr-utility",
-      "version": "1.2.4-2",
+      "version": "1.2.4-3",
       "patch_set": "audio/goxlr-utility/v1.2.4",
       "status": "applies",
       "base": {
@@ -348,7 +348,7 @@
           "kind": "package",
           "url": "https://mirror.cachyos.org/repo/x86_64/cachyos/",
           "name": "goxlr-utility",
-          "version": "1.2.4-2"
+          "version": "1.2.4-3"
         },
         {
           "kind": "git",
