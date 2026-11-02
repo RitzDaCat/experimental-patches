@@ -86,11 +86,11 @@
       ],
       "series": "series.all",
       "patches": {
-        "0001-bpf-native-scalar-bitops.patch": "59b3c263eed24768cc609021d905277f707f5ccfc2b73b022e8552153b291502",
-        "0002-sched-ext-lean-idle-claim.patch": "3cd96713e9c80a8c5e03e6dd8707b7fb7795c2ba12917e33bccce305d7cfa6a8",
-        "0003-sched-ext-dsq-direct-index.patch": "a0c2c6883b5f2a14a36ec928c7a7e3271660a21241404aecac2ef7ec8a04140a",
-        "0004-sched-wake-signals.patch": "b9c1770a80c28a841a204df406934f718a5f4420c6405073e943f63efd587d28",
-        "0005-identify-experimental-build.patch": "379ee131cebdc86c134eb71cb71259a237a528e1fb753b8aced4afcd43d623ae"
+        "0001-bpf-add-native-scalar-bitops.patch": "2414b55cd101fb696faf21f4f6229ec6318d391b48593e4535fd829ddb838832",
+        "0002-sched_ext-add-lean-idle-claim.patch": "c79e21ace97aee574c2a17edea4dba24a6e1fe733276c5d7d2bbb0811ddfdeb5",
+        "0003-sched_ext-add-direct-DSQ-index.patch": "c62f150febd93343ae2465f9f59f267cc7074c7893232e6d9f866003e0f32865",
+        "0004-sched-add-wake-signals.patch": "faf184a2d0085d9612e82e10a3cf0e8940b94a71f02183708dbabdf284438edf",
+        "0005-localversion-identify-experimental-build.patch": "b6fbd261d82b8bd8a093073d9d0cd4d7da993bc154039e37bc74473483545867"
       },
       "files": {
         "Makefile": "2ed4185f07916d1480e22a14d2ae8bd39f25ffc71a4781bf8d4a41f763949b69",
@@ -129,7 +129,7 @@
       "status": "applies",
       "base": {
         "repository": "https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/",
-        "commit": "6de3fab67de6b6765f8d7146dc03eda38f8ffc79",
+        "commit": "f7008fb94ee033c8de9f42ae2bf2911db73c17f9",
         "branch": "for-next"
       },
       "tracking": [
@@ -137,30 +137,30 @@
           "kind": "git",
           "repository": "https://kernel.googlesource.com/pub/scm/linux/kernel/git/tj/sched_ext",
           "ref": "refs/heads/for-next",
-          "commit": "6de3fab67de6b6765f8d7146dc03eda38f8ffc79"
+          "commit": "f7008fb94ee033c8de9f42ae2bf2911db73c17f9"
         }
       ],
       "files": {
-        "Makefile": "2ed4185f07916d1480e22a14d2ae8bd39f25ffc71a4781bf8d4a41f763949b69",
-        "arch/x86/net/bpf_jit_comp.c": "8d4bf9c527c8da7c89240ab4bf5fccf4bcf051b8ee866038373fdb1940c23ae4",
-        "drivers/dma-buf/dma-fence.c": "520a25bcb3d5a250720aa70be3e53c014cae173cb27a2140a0c0cd3b6d44ee53",
+        "Makefile": "fd957b7b8a7f26a0a7c3ccd3d0393d2abc9265a1446e6bbc0a5e7cd9d930da80",
+        "arch/x86/net/bpf_jit_comp.c": "4d8ce1c9e587a8348ad8d82aebead9fc53ad2fe2b425a6c781a9b6d3443107f7",
+        "drivers/dma-buf/dma-fence.c": "74cd1f45daba9dd0829f6c48ae4075c632baf2f61e41192959de12bf0ed26ae8",
         "drivers/dma-buf/sync_file.c": "105f0913633a872f85c47120266beedd308bc5192a4d36950240bac2ca87c2fe",
-        "drivers/gpu/drm/drm_syncobj.c": "2ebc4953a5a96435dd95659831b2e36f49f4ce5239aa90f3b37519258c746dd0",
-        "drivers/input/evdev.c": "d452e5753d738255453e8e5ed7ace7c9d53b06d0017000aacfe250a56cff5b65",
-        "fs/eventfd.c": "ceea005bec9ca9eeabced64eeb4d8d3377be31382b9ff8824a1aa6989ea9b546",
-        "fs/eventpoll.c": "334e9bdb5b2e4366fcc6058681a93b3d5434663607401238fa73f63356cfe587",
+        "drivers/gpu/drm/drm_syncobj.c": "086c8721d704bb2a00425f930730c07b011d515aed82ffec58198e450b0ccd0b",
+        "drivers/input/evdev.c": "20368803465fee51558552a68e67da108d9f716b289c80b7e239bbae9c772c5c",
+        "fs/eventfd.c": "ea310ec33c39259c58d10a38acb1a0190c2748f64107b5557588b977eab18cb8",
+        "fs/eventpoll.c": "71ddc9593a7a691152142d28262ab7920359b71733a925909895683a8d81ad89",
         "include/linux/eventfd.h": "3e4be8a75902ad79fb7f777a4e7e653850aa9cd592aceaf41f1ed5c905fda293",
-        "include/linux/filter.h": "6c243319aaec8ce240e7bb8044cbbf4f75ac65bcb4e8957d6ada126d91b17473",
-        "include/linux/sched/ext.h": "f5e7fa5f4e735c5fa3d395da5bd22708a195feb746f2ee0e07145dc610aa973b",
-        "kernel/bpf/helpers.c": "dec19e82973ffc1277c5c809ce6082fb286ff06874729e0844ca8aa2caec6c77",
-        "kernel/bpf/verifier.c": "98781b423ccd8145bf64f708042c06e5e13c4a5c558d7919a526b92384d47c03",
-        "kernel/sched/core.c": "926ebf14e8799ebfe4ec91b6689758797068101acff72a6db481962d54f59bfa",
-        "kernel/sched/ext/ext.c": "dca454704eeaca3c6f1cb8791f1bee0e9333b536e612d09fbe32c7831a80ee21",
+        "include/linux/filter.h": "01d7feb85dd3df20ca8bbab2e3cb7b09ee5d52b822dce2f44e01f5f2de39c47b",
+        "include/linux/sched/ext.h": "b8224fb6c532a4edf908c5ddede5873b1025f242b354d891ccdcdea36429c520",
+        "kernel/bpf/helpers.c": "4cfb6694a648f3e4fed42556f517ba2d7b6bc59adb7954476f1a74e9e99634db",
+        "kernel/bpf/verifier.c": "74113875e5f07aeb6a400c60ed0b880c42cadfaafe7fa850892aaf4ccfa25a84",
+        "kernel/sched/core.c": "669b90bd534edf7cc02429bce973df27fe45bf466f2f054642f605dc475b54b5",
+        "kernel/sched/ext/ext.c": "2c1775bc4997ff89b099162ca0660d005074827c3800216447f6c78ef428221d",
         "kernel/sched/ext/ext.h": "2f59332508782b80352f18cdca5f5ddd0aaa06972b2a3dd22e0a3f9c0cc9c5ad",
         "kernel/sched/ext/idle.c": "2de25e5d0f877cd23fdde4e615f961a86114b1f398010c90602ae34454b338cc",
-        "kernel/sched/ext/internal.h": "eb434a85d1c7357291ecc234d97f40562c3b905ffdda3af5b537c66aafdef86d",
-        "kernel/sched/sched.h": "26d4b02cfa4fdaaeec7ff9ce397e458328d5fc44a05798bcc2b24406d192b100",
-        "kernel/sched/wait.c": "be48d6f642ab3a31d9ffadbac18a424734af8057aad49b343d3cd62b697683ae"
+        "kernel/sched/ext/internal.h": "955a8ecafe80352bcddee99dcdc3253a6c7bd7245c531e18821898b4fda882b9",
+        "kernel/sched/sched.h": "c6220f74e6026a495af9127b3bac6c2f9f97fec9ddb11bb3f6492bc76b250771",
+        "kernel/sched/wait.c": "0e099696266630da382f024ae61ae9881de9f82df56c36cbb20deae8a9a38716"
       },
       "absent_files": [
         "include/linux/sched/wake_signal.h",
@@ -169,11 +169,11 @@
         "tools/testing/selftests/bpf/progs/scalar_bitops.c"
       ],
       "patches": {
-        "0001-bpf-native-scalar-bitops.patch": "01831d296c5c08f8be561ae48191132dba7860760ecca6d590705178cde60bff",
-        "0002-sched-ext-lean-idle-claim.patch": "b5bf22b8a04c69d1f53ed94756748abd858da495eccbb58e905a2daa46ba8cc2",
-        "0003-sched-ext-dsq-direct-index.patch": "decf560db74dbea70b7270c79e1f58fe3a7c0251acb776995ef7c733854c0ed7",
-        "0004-sched-wake-signals.patch": "4563b6c45ec566e273f32686aaaa62ec3d4c8b4f06b1480805f851f3dced12b5",
-        "0005-identify-experimental-build.patch": "de74b4b9b8ccd77f368fccdc63ade49c37b6a6ad2d837d68b4dc6f1def98d7eb"
+        "0001-bpf-add-native-scalar-bitops.patch": "7a0252f0b8f5971fab64e94832a3a781cecb60d83b7dec808777f42b4cee0d51",
+        "0002-sched_ext-add-lean-idle-claim.patch": "d81a5f2c7a36cc9adf578b599ed6e23623b4b33617963f9a866bc14cfa8113ac",
+        "0003-sched_ext-add-direct-DSQ-index.patch": "633e02e661f1165b0937f0c0704d7f043df089564b797e901b8f3c5eba5e5555",
+        "0004-sched-add-wake-signals.patch": "80381df3ff722becaaee30bffffc4e38e90f4028746d4bca551d50770ab9c60c",
+        "0005-localversion-identify-experimental-build.patch": "b6fbd261d82b8bd8a093073d9d0cd4d7da993bc154039e37bc74473483545867"
       },
       "series": "series.all"
     },

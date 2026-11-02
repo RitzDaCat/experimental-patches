@@ -9,7 +9,7 @@ series; current distro compatibility is tracked here separately.
 | --- | --- | --- | --- |
 | `cachyos` | CachyOS `7.3.1-1`, `36ae4c219cfb` | [7.3 `series.all`](../kernel/sched-ext/cachyos-7.3/) | Strict apply; affected objects build |
 | `tj-7-4` | TJ `for-7.4`, `1f5dde349ac2` | [for-7.4 `series.all`](../kernel/sched-ext-tj/for-7.4/) | Same checks; affected objects with proxy execution off/on |
-| `tj-sched-ext` | TJ `for-next`, `6de3fab67de6` | [for-next `series.all`](../kernel/sched-ext-tj/for-next/) | Strict apply; affected objects with proxy execution enabled |
+| `tj-sched-ext` | TJ `for-next`, `f7008fb94ee0` | [for-next `series.all`](../kernel/sched-ext-tj/for-next/) | Strict apply; affected objects with proxy execution enabled |
 | `scx-cake` | Cake `1.2.2` in scx-scheds `1.1.4-1` | [Release identity](../scheduler/scx-cake/v1.2.2/) | Strict apply; Cargo manifest/lockfile identity matches |
 | `scx-cake-nightly` | Public nightly `4b6d2c4240a5`, Cake `1.2.1` | [Nightly identity](../scheduler/scx-cake/nightly/) | Public pin refreshed; strict apply |
 | `kwin` | `6.8.1-1.1` | KWin 6.7.5 donor | Port required; reduced stack fails at wake instrumentation |

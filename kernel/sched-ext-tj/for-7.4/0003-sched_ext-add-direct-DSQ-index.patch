@@ -1,13 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
-Subject: [PATCH 3/5] sched_ext: direct index for user DSQs
+Date: Thu, 22 Oct 2026 13:37:00 -0500
+Subject: [PATCH 3/5] sched_ext: add direct DSQ index
 
-Base: TJ sched_ext for-7.4 at 1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338.
 Port of the experimental-patches kernel feature series.
 Upstream already includes the typed DSQ hash compare; add only the direct index and its lifecycle.
 No performance or boot result is implied by this source port.
+---
+ kernel/sched/ext/ext.c      | 58 +++++++++++++++++++++++++++++++++----
+ kernel/sched/ext/internal.h |  2 ++
+ 2 files changed, 54 insertions(+), 6 deletions(-)
 
 diff --git a/kernel/sched/ext/ext.c b/kernel/sched/ext/ext.c
-index 0785703..3f2ce11 100644
+index 07857039aee6..3f2ce11fbb03 100644
 --- a/kernel/sched/ext/ext.c
 +++ b/kernel/sched/ext/ext.c
 @@ -8,6 +8,7 @@
@@ -133,7 +138,7 @@ index 0785703..3f2ce11 100644
  	sch->pnode = kzalloc_objs(sch->pnode[0], nr_node_ids);
  	if (!sch->pnode) {
  		ret = -ENOMEM;
-@@ -8083,6 +8124,7 @@ err_free_pnode:
+@@ -8083,6 +8124,7 @@ struct scx_sched *scx_alloc_and_add_sched(struct scx_enable_cmd *cmd,
  	kfree(sch->pnode);
  err_free_hash:
  	rhashtable_free_and_destroy(&sch->dsq_hash, NULL, NULL);
@@ -157,7 +162,7 @@ index 0785703..3f2ce11 100644
  		ret = -ENODEV;
  	}
 diff --git a/kernel/sched/ext/internal.h b/kernel/sched/ext/internal.h
-index 2cdfcbf..93fe069 100644
+index 2cdfcbf956b8..93fe069c5a31 100644
 --- a/kernel/sched/ext/internal.h
 +++ b/kernel/sched/ext/internal.h
 @@ -1706,6 +1706,8 @@ struct scx_sched {

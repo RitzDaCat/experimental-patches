@@ -1,13 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
-Subject: [PATCH 2/5] sched_ext: lean idle with caller validation
+Date: Thu, 22 Oct 2026 13:37:00 -0500
+Subject: [PATCH 2/5] sched_ext: add lean idle claim
 
-Base: TJ sched_ext for-7.4 at 1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338.
 Port of the experimental-patches kernel feature series.
 Use free SCX_OPS bits 11/12; retain scheduler and CPU-membership validation before the claim.
 No performance or boot result is implied by this source port.
+---
+ kernel/sched/ext/idle.c     | 143 ++++++++++++++++++++++++++++++++++++
+ kernel/sched/ext/internal.h |   9 ++-
+ 2 files changed, 151 insertions(+), 1 deletion(-)
 
 diff --git a/kernel/sched/ext/idle.c b/kernel/sched/ext/idle.c
-index 922fbc3..cf55753 100644
+index 922fbc3065cc..cf5575390360 100644
 --- a/kernel/sched/ext/idle.c
 +++ b/kernel/sched/ext/idle.c
 @@ -26,6 +26,10 @@ static DEFINE_STATIC_KEY_FALSE(scx_selcpu_topo_llc);
@@ -214,7 +219,7 @@ index 922fbc3..cf55753 100644
  	static_branch_disable(&scx_builtin_idle_per_node);
  }
 diff --git a/kernel/sched/ext/internal.h b/kernel/sched/ext/internal.h
-index 29e69a8..2cdfcbf 100644
+index 29e69a83d876..2cdfcbf956b8 100644
 --- a/kernel/sched/ext/internal.h
 +++ b/kernel/sched/ext/internal.h
 @@ -243,6 +243,11 @@ enum scx_ops_flags {

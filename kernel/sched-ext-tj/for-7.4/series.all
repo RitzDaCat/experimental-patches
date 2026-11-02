@@ -1,5 +1,5 @@
-0001-bpf-native-scalar-bitops.patch
-0002-sched-ext-lean-idle-claim.patch
-0003-sched-ext-dsq-direct-index.patch
-0004-sched-wake-signals.patch
-0005-identify-experimental-build.patch
+0001-bpf-add-native-scalar-bitops.patch
+0002-sched_ext-add-lean-idle-claim.patch
+0003-sched_ext-add-direct-DSQ-index.patch
+0004-sched-add-wake-signals.patch
+0005-localversion-identify-experimental-build.patch

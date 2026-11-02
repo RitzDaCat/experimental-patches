@@ -7,9 +7,9 @@ bases. KWin, audio and MangoHud are userspace patches and do not apply here.
 | Track | Commit | Result |
 | --- | --- | --- |
 | [for-7.4](for-7.4/) | `1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338` | Complete series applies; affected objects compile with proxy execution off/on; scalar-bitops BPF object/skeleton builds |
-| [for-next](for-next/) | `6de3fab67de6b6765f8d7146dc03eda38f8ffc79` | Complete series applies; affected objects compile with proxy execution enabled |
+| [for-next](for-next/) | `f7008fb94ee033c8de9f42ae2bf2911db73c17f9` | Complete series applies; affected objects compile with proxy execution enabled |
 
-Both Makefiles report `7.3.0-rc1`. `for-7.4` names the development branch, not
+The `for-7.4` Makefile reports `7.3.0-rc1` and `for-next` reports `7.3.0`. `for-7.4` names the development branch, not
 a final release. No CachyOS 7.4 tag is published in this pass. Default `master`
 is not silently substituted for either target.
 

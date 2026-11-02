@@ -1,7 +1,7 @@
 # sched_ext experiments — TJ for-next
 
 Complete feature series for TJ's integration branch `for-next`, pinned at
-`6de3fab67de6b6765f8d7146dc03eda38f8ffc79`. Its Makefile says `7.3.0-rc1`;
+`f7008fb94ee033c8de9f42ae2bf2911db73c17f9`. Its Makefile says `7.3.0`;
 branch names do not establish a released kernel version.
 
 Source: [TJ sched_ext](https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/).
@@ -25,6 +25,8 @@ comparison code.
 
 | Date | Gate | Result |
 | --- | --- | --- |
+| 2026-11-02 | Rebase to `f7008fb94ee0` | Bitops merged with upstream's two-register kfunc returns (JIT restores R2-R5 before the RDX copy; verifier bounds R0 after `mark_kfunc_ret_regs()`); patches 2-5 unchanged; complete series applies |
+| 2026-11-02 | Affected kernel objects | All 12 targets compile with Clang 23.1.4, proxy execution enabled, 0 warnings |
 | 2026-10-22 | Complete series | Applies with zero fuzz to exact source hashes |
 | 2026-10-22 | Affected kernel objects | All 12 targets compile with Clang 23.1.3; proxy execution, sub-schedulers and IRQ accounting enabled |
 

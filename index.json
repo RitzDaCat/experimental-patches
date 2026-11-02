@@ -87,24 +87,24 @@
       "current": true,
       "base": {
         "repository": "https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/",
-        "commit": "6de3fab67de6b6765f8d7146dc03eda38f8ffc79",
+        "commit": "f7008fb94ee033c8de9f42ae2bf2911db73c17f9",
         "branch": "for-next"
       },
       "series": {
         "default": [
-          "0005-identify-experimental-build.patch"
+          "0005-localversion-identify-experimental-build.patch"
         ],
         "all": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0003-sched-ext-dsq-direct-index.patch",
-          "0004-sched-wake-signals.patch",
-          "0005-identify-experimental-build.patch"
+          "0001-bpf-add-native-scalar-bitops.patch",
+          "0002-sched_ext-add-lean-idle-claim.patch",
+          "0003-sched_ext-add-direct-DSQ-index.patch",
+          "0004-sched-add-wake-signals.patch",
+          "0005-localversion-identify-experimental-build.patch"
         ],
         "proven": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0005-identify-experimental-build.patch"
+          "0001-bpf-add-native-scalar-bitops.patch",
+          "0002-sched_ext-add-lean-idle-claim.patch",
+          "0005-localversion-identify-experimental-build.patch"
         ]
       }
     },
@@ -120,19 +120,19 @@
       },
       "series": {
         "default": [
-          "0005-identify-experimental-build.patch"
+          "0005-localversion-identify-experimental-build.patch"
         ],
         "all": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0003-sched-ext-dsq-direct-index.patch",
-          "0004-sched-wake-signals.patch",
-          "0005-identify-experimental-build.patch"
+          "0001-bpf-add-native-scalar-bitops.patch",
+          "0002-sched_ext-add-lean-idle-claim.patch",
+          "0003-sched_ext-add-direct-DSQ-index.patch",
+          "0004-sched-add-wake-signals.patch",
+          "0005-localversion-identify-experimental-build.patch"
         ],
         "proven": [
-          "0001-bpf-native-scalar-bitops.patch",
-          "0002-sched-ext-lean-idle-claim.patch",
-          "0005-identify-experimental-build.patch"
+          "0001-bpf-add-native-scalar-bitops.patch",
+          "0002-sched_ext-add-lean-idle-claim.patch",
+          "0005-localversion-identify-experimental-build.patch"
         ]
       }
     },

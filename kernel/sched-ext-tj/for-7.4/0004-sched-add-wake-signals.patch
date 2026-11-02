@@ -1,16 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
-Subject: [PATCH 4/5] sched: input and fence wake signals
+Date: Thu, 22 Oct 2026 13:37:00 -0500
+Subject: [PATCH 4/5] sched: add wake signals
 
-Base: TJ sched_ext for-next at 6de3fab67de6b6765f8d7146dc03eda38f8ffc79.
 Port of the experimental-patches kernel feature series.
 Use free flag bit 13. Clear tokens after the actual running callback in scx_start_task_running, including proxy donors; require root opt-in.
 No performance or boot result is implied by this source port.
 
 Private wake tags use 0x200/0x400 (shift 9), preserving token cause bits 0/1.
 Compile-time assertions reject overlap with upstream wake flags, including WF_TTWU_RQ when present.
+---
+ drivers/dma-buf/dma-fence.c       |  3 +-
+ drivers/dma-buf/sync_file.c       |  5 ++-
+ drivers/gpu/drm/drm_syncobj.c     |  7 ++--
+ drivers/input/evdev.c             |  5 ++-
+ fs/eventfd.c                      | 18 ++++++--
+ fs/eventpoll.c                    | 27 ++++++------
+ include/linux/eventfd.h           |  8 +++-
+ include/linux/sched/ext.h         |  2 +
+ include/linux/sched/wake_signal.h | 21 ++++++++++
+ kernel/sched/core.c               | 12 +++++-
+ kernel/sched/ext/ext.c            | 69 +++++++++++++++++++++++++++++++
+ kernel/sched/ext/ext.h            | 11 +++++
+ kernel/sched/ext/internal.h       |  5 ++-
+ kernel/sched/sched.h              |  8 +++-
+ kernel/sched/wait.c               | 15 +++++++
+ 15 files changed, 188 insertions(+), 28 deletions(-)
+ create mode 100644 include/linux/sched/wake_signal.h
 
 diff --git a/drivers/dma-buf/dma-fence.c b/drivers/dma-buf/dma-fence.c
-index 05090fb..d044e9b 100644
+index 05090fb0fd5a..d044e9b89fbe 100644
 --- a/drivers/dma-buf/dma-fence.c
 +++ b/drivers/dma-buf/dma-fence.c
 @@ -15,6 +15,7 @@
@@ -31,7 +50,7 @@ index 05090fb..d044e9b 100644
  
  /**
 diff --git a/drivers/dma-buf/sync_file.c b/drivers/dma-buf/sync_file.c
-index 2166bbd..52abeb3 100644
+index 2166bbdf7e4a..52abeb306f0b 100644
 --- a/drivers/dma-buf/sync_file.c
 +++ b/drivers/dma-buf/sync_file.c
 @@ -12,6 +12,7 @@
@@ -61,7 +80,7 @@ index 2166bbd..52abeb3 100644
  
  	return dma_fence_is_signaled(sync_file->fence) ? EPOLLIN : 0;
 diff --git a/drivers/gpu/drm/drm_syncobj.c b/drivers/gpu/drm/drm_syncobj.c
-index 2fa170a..cea2477 100644
+index 2fa170a29a62..cea24779ca10 100644
 --- a/drivers/gpu/drm/drm_syncobj.c
 +++ b/drivers/gpu/drm/drm_syncobj.c
 @@ -199,6 +199,7 @@
@@ -100,7 +119,7 @@ index 2fa170a..cea2477 100644
  		}
  	}
 diff --git a/drivers/input/evdev.c b/drivers/input/evdev.c
-index 3a718d6..24355cb 100644
+index 3a718d600006..24355cbab9c5 100644
 --- a/drivers/input/evdev.c
 +++ b/drivers/input/evdev.c
 @@ -14,6 +14,7 @@
@@ -123,7 +142,7 @@ index 3a718d6..24355cb 100644
  
  /*
 diff --git a/fs/eventfd.c b/fs/eventfd.c
-index 9d33a02..010dd74 100644
+index 9d33a02757d5..010dd747836f 100644
 --- a/fs/eventfd.c
 +++ b/fs/eventfd.c
 @@ -11,6 +11,7 @@
@@ -181,7 +200,7 @@ index 9d33a02..010dd74 100644
  }
 -
 diff --git a/fs/eventpoll.c b/fs/eventpoll.c
-index e0c4bf8..1612edc 100644
+index e0c4bf88a838..1612edc243cd 100644
 --- a/fs/eventpoll.c
 +++ b/fs/eventpoll.c
 @@ -9,6 +9,7 @@
@@ -247,7 +266,7 @@ index e0c4bf8..1612edc 100644
  	}
  	if (waitqueue_active(&ep->poll_wait))
  		pwake++;
-@@ -1571,7 +1573,8 @@ out_unlock:
+@@ -1571,7 +1573,8 @@ static int ep_poll_callback(wait_queue_entry_t *wait, unsigned mode, int sync, v
  
  	/* We have to call this outside the lock */
  	if (pwake)
@@ -276,7 +295,7 @@ index e0c4bf8..1612edc 100644
  	return 0;
  }
 diff --git a/include/linux/eventfd.h b/include/linux/eventfd.h
-index e32bee4..1004658 100644
+index e32bee4345fb..1004658f34f4 100644
 --- a/include/linux/eventfd.h
 +++ b/include/linux/eventfd.h
 @@ -36,6 +36,8 @@ struct file *eventfd_fget(int fd);
@@ -306,7 +325,7 @@ index e32bee4..1004658 100644
  #endif /* _LINUX_EVENTFD_H */
 -
 diff --git a/include/linux/sched/ext.h b/include/linux/sched/ext.h
-index efd635a..e33f980 100644
+index efd635a99309..e33f9809b530 100644
 --- a/include/linux/sched/ext.h
 +++ b/include/linux/sched/ext.h
 @@ -11,6 +11,7 @@
@@ -327,7 +346,7 @@ index efd635a..e33f980 100644
  	u64			ddsp_slice;
 diff --git a/include/linux/sched/wake_signal.h b/include/linux/sched/wake_signal.h
 new file mode 100644
-index 0000000..1d9f1b7
+index 000000000000..1d9f1b7e8e02
 --- /dev/null
 +++ b/include/linux/sched/wake_signal.h
 @@ -0,0 +1,21 @@
@@ -353,7 +372,7 @@ index 0000000..1d9f1b7
 +
 +#endif
 diff --git a/kernel/sched/core.c b/kernel/sched/core.c
-index acc8931..f166cb1 100644
+index acc89310d488..f166cb1c802f 100644
 --- a/kernel/sched/core.c
 +++ b/kernel/sched/core.c
 @@ -39,6 +39,7 @@
@@ -397,7 +416,7 @@ index acc8931..f166cb1 100644
  }
  EXPORT_SYMBOL(default_wake_function);
 diff --git a/kernel/sched/ext/ext.c b/kernel/sched/ext/ext.c
-index 53047d2..f82e194 100644
+index 3f2ce11fbb03..d9d26cb1706a 100644
 --- a/kernel/sched/ext/ext.c
 +++ b/kernel/sched/ext/ext.c
 @@ -12,6 +12,7 @@
@@ -426,7 +445,7 @@ index 53047d2..f82e194 100644
  DEFINE_PERCPU_RWSEM(scx_fork_rwsem);
  static atomic_t scx_enable_state_var = ATOMIC_INIT(SCX_DISABLED);
  static DEFINE_RAW_SPINLOCK(scx_bypass_lock);
-@@ -3439,6 +3451,8 @@ static void scx_start_task_running(struct rq *rq, struct task_struct *p)
+@@ -3404,6 +3416,8 @@ static void scx_start_task_running(struct rq *rq, struct task_struct *p)
  
  	if (SCX_HAS_OP(sch, running))
  		SCX_CALL_OP_TASK(sch, running, rq, p);
@@ -435,7 +454,7 @@ index 53047d2..f82e194 100644
  
  	p->scx.flags |= SCX_TASK_RUN_TRACKED;
  }
-@@ -4449,6 +4463,7 @@ int __scx_init_task(struct scx_sched *sch, struct task_struct *p,
+@@ -4408,6 +4422,7 @@ int __scx_init_task(struct scx_sched *sch, struct task_struct *p,
  	int ret;
  
  	p->scx.disallow = false;
@@ -443,7 +462,7 @@ index 53047d2..f82e194 100644
  
  	if (SCX_HAS_OP(sch, init_task)) {
  		struct scx_init_task_args args = {
-@@ -7341,6 +7356,7 @@ static void scx_root_disable(struct scx_sched *sch)
+@@ -7257,6 +7272,7 @@ static void scx_root_disable(struct scx_sched *sch)
  
  	/* no task is on scx, turn off all the switches and flush in-progress calls */
  	static_branch_disable(&__scx_enabled);
@@ -451,7 +470,7 @@ index 53047d2..f82e194 100644
  	static_branch_disable(&__scx_is_cid_type);
  	if (sch->ops.flags & SCX_OPS_TID_TO_TASK)
  		static_branch_disable(&__scx_tid_to_task_enabled);
-@@ -8295,6 +8311,12 @@ int scx_validate_ops(struct scx_sched *sch, const struct sched_ext_ops *ops)
+@@ -8211,6 +8227,12 @@ int scx_validate_ops(struct scx_sched *sch, const struct sched_ext_ops *ops)
  	 * may set it to declare a dependency; reject if the root hasn't
  	 * enabled it.
  	 */
@@ -464,7 +483,7 @@ index 53047d2..f82e194 100644
  	if ((ops->flags & SCX_OPS_TID_TO_TASK) && scx_parent(sch) &&
  	    !(sch->ancestors[0]->ops.flags & SCX_OPS_TID_TO_TASK)) {
  		scx_error(sch, "SCX_OPS_TID_TO_TASK requires root scheduler to enable it");
-@@ -8665,6 +8687,8 @@ static void scx_root_enable_workfn(struct kthread_work *work)
+@@ -8579,6 +8601,8 @@ static void scx_root_enable_workfn(struct kthread_work *work)
  	 */
  	WRITE_ONCE(scx_switching_all, !(ops->flags & SCX_OPS_SWITCH_PARTIAL));
  	static_branch_enable(&__scx_enabled);
@@ -473,7 +492,7 @@ index 53047d2..f82e194 100644
  
  	/*
  	 * We're fully committed and can't fail. The task READY -> ENABLED
-@@ -11363,6 +11387,49 @@ __bpf_kfunc s32 scx_bpf_cidperf_set(s32 cid, u32 perf,
+@@ -11262,6 +11286,49 @@ __bpf_kfunc s32 scx_bpf_cidperf_set(s32 cid, u32 perf,
  	return scx_cpuperf_set(sch, cpu, perf);
  }
  
@@ -523,7 +542,7 @@ index 53047d2..f82e194 100644
  /**
   * scx_bpf_nr_node_ids - Return the number of possible node IDs
   *
-@@ -11803,6 +11870,8 @@ __bpf_kfunc u32 scx_bpf_cgroup_nr_cpus(struct cgroup *cgrp)
+@@ -11702,6 +11769,8 @@ __bpf_kfunc u32 scx_bpf_cgroup_nr_cpus(struct cgroup *cgrp)
  __bpf_kfunc_end_defs();
  
  BTF_KFUNCS_START(scx_kfunc_ids_any)
@@ -533,7 +552,7 @@ index 53047d2..f82e194 100644
  BTF_ID_FLAGS(func, scx_bpf_task_set_dsq_vtime, KF_IMPLICIT_ARGS | KF_RCU);
  BTF_ID_FLAGS(func, scx_bpf_task_set_lazy_resched, KF_IMPLICIT_ARGS | KF_RCU);
 diff --git a/kernel/sched/ext/ext.h b/kernel/sched/ext/ext.h
-index d32bc01..f02a900 100644
+index d32bc01071b0..f02a9006cbb5 100644
 --- a/kernel/sched/ext/ext.h
 +++ b/kernel/sched/ext/ext.h
 @@ -8,6 +8,15 @@
@@ -562,7 +581,7 @@ index d32bc01..f02a900 100644
  static inline void scx_pre_fork(struct task_struct *p) {}
  static inline int scx_fork(struct task_struct *p, struct kernel_clone_args *kargs) { return 0; }
 diff --git a/kernel/sched/ext/internal.h b/kernel/sched/ext/internal.h
-index b0f2af2..2229d50 100644
+index 93fe069c5a31..fb0ec3d2ff82 100644
 --- a/kernel/sched/ext/internal.h
 +++ b/kernel/sched/ext/internal.h
 @@ -247,6 +247,8 @@ enum scx_ops_flags {
@@ -585,7 +604,7 @@ index b0f2af2..2229d50 100644
  	/* high 8 bits are internal, don't include in SCX_OPS_ALL_FLAGS */
  	__SCX_OPS_INTERNAL_MASK		= 0xffLLU << 56,
 diff --git a/kernel/sched/sched.h b/kernel/sched/sched.h
-index 6287659..6123d45 100644
+index 37d4808d7f19..51d77479fd5f 100644
 --- a/kernel/sched/sched.h
 +++ b/kernel/sched/sched.h
 @@ -21,6 +21,7 @@
@@ -596,7 +615,7 @@ index 6287659..6123d45 100644
  #include <linux/atomic.h>
  #include <linux/bitmap.h>
  #include <linux/bug.h>
-@@ -2567,12 +2568,17 @@ static inline int task_on_rq_migrating(struct task_struct *p)
+@@ -2555,12 +2556,17 @@ static inline int task_on_rq_migrating(struct task_struct *p)
   * Callers must not rely on it to prevent migration,
   * preserve CPU locality or make the wakee run next.
   */
@@ -616,7 +635,7 @@ index 6287659..6123d45 100644
  static_assert(WF_FORK == SD_BALANCE_FORK);
  static_assert(WF_TTWU == SD_BALANCE_WAKE);
 diff --git a/kernel/sched/wait.c b/kernel/sched/wait.c
-index 477e4bf..a701376 100644
+index 477e4bf9c01e..a7013760335c 100644
 --- a/kernel/sched/wait.c
 +++ b/kernel/sched/wait.c
 @@ -6,6 +6,7 @@

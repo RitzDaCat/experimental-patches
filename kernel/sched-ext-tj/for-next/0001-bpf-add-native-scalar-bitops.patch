@@ -1,16 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
-Subject: [PATCH 1/5] bpf: native scalar bit operations
+Date: Thu, 22 Oct 2026 13:37:00 -0500
+Subject: [PATCH 1/5] bpf: add native scalar bitops
 
-Base: TJ sched_ext for-7.4 at 1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338.
 Port of the experimental-patches kernel feature series.
 Use current kfunc metadata and preserve arena-argument call setup.
 No performance or boot result is implied by this source port.
+---
+ arch/x86/net/bpf_jit_comp.c                   |  58 +++++++
+ include/linux/filter.h                        |   5 +
+ kernel/bpf/helpers.c                          |  36 +++++
+ kernel/bpf/verifier.c                         |  40 +++++
+ .../selftests/bpf/prog_tests/scalar_bitops.c  |   8 +
+ .../selftests/bpf/progs/scalar_bitops.c       | 141 ++++++++++++++++++
+ 6 files changed, 288 insertions(+)
+ create mode 100644 tools/testing/selftests/bpf/prog_tests/scalar_bitops.c
+ create mode 100644 tools/testing/selftests/bpf/progs/scalar_bitops.c
 
 diff --git a/arch/x86/net/bpf_jit_comp.c b/arch/x86/net/bpf_jit_comp.c
-index 1a9fb53..2215dea 100644
+index d90b6d238b3a..c60ae8ce09bf 100644
 --- a/arch/x86/net/bpf_jit_comp.c
 +++ b/arch/x86/net/bpf_jit_comp.c
-@@ -1628,6 +1628,40 @@ static void emit_priv_frame_ptr(u8 **pprog, void __percpu *priv_frame_ptr)
+@@ -2226,6 +2226,40 @@ static void emit_priv_frame_ptr(u8 **pprog, void __percpu *priv_frame_ptr)
  	*pprog = prog;
  }
  
@@ -50,17 +61,16 @@ index 1a9fb53..2215dea 100644
 +
  #define INSN_SZ_DIFF (((addrs[i] - addrs[i - 1]) - (prog - temp)))
  
- #define __LOAD_TCC_PTR(off)			\
-@@ -2644,6 +2678,8 @@ populate_extable:
- 
+ /*
+@@ -3415,6 +3449,7 @@ static int do_jit(struct bpf_verifier_env *env, struct bpf_prog *bpf_prog, int *
  			/* call */
  		case BPF_JMP | BPF_CALL: {
+ 			const struct btf_func_model *fm = NULL;
 +			bool scalar_fastcall = false;
-+
+ 
  			func = (u8 *) __bpf_call_base + imm32;
  			if (src_reg == BPF_PSEUDO_CALL && tail_call_reachable) {
- 				LOAD_TAIL_CALL_CNT_PTR(stack_depth);
-@@ -2651,6 +2687,23 @@ populate_extable:
+@@ -3425,6 +3460,23 @@ static int do_jit(struct bpf_verifier_env *env, struct bpf_prog *bpf_prog, int *
  			}
  			if (!imm32)
  				return -EINVAL;
@@ -82,9 +92,9 @@ index 1a9fb53..2215dea 100644
 +			}
 +#endif
  			if (src_reg == BPF_PSEUDO_KFUNC_CALL) {
- 				err = emit_kfunc_arena_args(bpf_prog, insn, &prog);
- 				if (err < 0)
-@@ -2666,6 +2719,12 @@ populate_extable:
+ 				fm = bpf_jit_find_kfunc_model(bpf_prog, insn);
+ 				if (!fm)
+@@ -3457,6 +3509,12 @@ static int do_jit(struct bpf_verifier_env *env, struct bpf_prog *bpf_prog, int *
  				return -EINVAL;
  			if (priv_frame_ptr)
  				pop_r9(&prog);
@@ -94,14 +104,14 @@ index 1a9fb53..2215dea 100644
 +				EMIT1(0x5a); /* pop rdx */
 +				EMIT1(0x5e); /* pop rsi */
 +			}
- 			break;
- 		}
- 
+ 			/*
+ 			 * A kfunc returning more than 8 bytes hands the second
+ 			 * half back in RDX (the native ABI's second return reg),
 diff --git a/include/linux/filter.h b/include/linux/filter.h
-index 4a9bc6a..db80e23 100644
+index 98254742ae37..bf3aebaa30e5 100644
 --- a/include/linux/filter.h
 +++ b/include/linux/filter.h
-@@ -1265,6 +1265,11 @@ struct bpf_prog *bpf_patch_insn_single(struct bpf_prog *prog, u32 off,
+@@ -1342,6 +1342,11 @@ struct bpf_prog *bpf_patch_insn_single(struct bpf_prog *prog, u32 off,
  				       const struct bpf_insn *patch, u32 len);
  
  #ifdef CONFIG_BPF_SYSCALL
@@ -114,10 +124,10 @@ index 4a9bc6a..db80e23 100644
  				     const struct bpf_insn *patch, u32 len);
  #else
 diff --git a/kernel/bpf/helpers.c b/kernel/bpf/helpers.c
-index b3cc5c8..fcce3ac 100644
+index 58e357302850..74aa220431cf 100644
 --- a/kernel/bpf/helpers.c
 +++ b/kernel/bpf/helpers.c
-@@ -4771,6 +4771,32 @@ __bpf_kfunc int bpf_timer_cancel_async(struct bpf_timer *timer)
+@@ -5034,6 +5034,32 @@ __bpf_kfunc int bpf_timer_cancel_async(struct bpf_timer *timer)
  	}
  }
  
@@ -150,7 +160,7 @@ index b3cc5c8..fcce3ac 100644
  __bpf_kfunc_end_defs();
  
  static void bpf_task_work_cancel_scheduled(struct irq_work *irq_work)
-@@ -4972,6 +4998,16 @@ BTF_ID_FLAGS(func, bpf_task_work_schedule_resume, KF_IMPLICIT_ARGS)
+@@ -5245,6 +5271,16 @@ BTF_ID_FLAGS(func, bpf_call_rcu_tasks_trace, KF_IMPLICIT_ARGS)
  BTF_ID_FLAGS(func, bpf_dynptr_from_file)
  BTF_ID_FLAGS(func, bpf_dynptr_file_discard, KF_RELEASE)
  BTF_ID_FLAGS(func, bpf_timer_cancel_async)
@@ -168,10 +178,10 @@ index b3cc5c8..fcce3ac 100644
  
  static const struct btf_kfunc_id_set common_kfunc_set = {
 diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
-index e421ea2..d4e039c 100644
+index 26a5ee0708a3..b3501f96abb0 100644
 --- a/kernel/bpf/verifier.c
 +++ b/kernel/bpf/verifier.c
-@@ -11648,6 +11648,9 @@ enum special_kfunc_type {
+@@ -13690,6 +13690,9 @@ enum special_kfunc_type {
  	KF_bpf_arena_alloc_pages,
  	KF_bpf_arena_free_pages,
  	KF_bpf_session_is_return,
@@ -181,7 +191,7 @@ index e421ea2..d4e039c 100644
  };
  
  BTF_ID_LIST(special_kfunc_list)
-@@ -11742,6 +11745,9 @@ BTF_ID(func, bpf_session_is_return)
+@@ -13791,6 +13794,9 @@ BTF_ID(func, bpf_session_is_return)
  #else
  BTF_ID_UNUSED
  #endif
@@ -189,9 +199,9 @@ index e421ea2..d4e039c 100644
 +BTF_ID(func, bpf_popcnt64)
 +BTF_ID(func, bpf_clz64)
  
- static bool is_bpf_obj_new_kfunc(u32 func_id)
+ static bool is_bpf_cast_to_kern_ctx_kfunc(const struct bpf_call_arg_meta *meta)
  {
-@@ -13648,6 +13654,31 @@ static int check_special_kfunc(struct bpf_verifier_env *env, struct bpf_call_arg
+@@ -15403,6 +15409,31 @@ static int check_special_kfunc(struct bpf_verifier_env *env, struct bpf_call_arg
  
  static int check_return_code(struct bpf_verifier_env *env, int regno, const char *reg_name);
  
@@ -223,28 +233,28 @@ index e421ea2..d4e039c 100644
  static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
  			    int *insn_idx_p)
  {
-@@ -13663,6 +13694,7 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
- 	u32 i, nargs, ptr_type_id;
+@@ -15418,6 +15449,7 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
+ 	u32 i, proto_slots, ptr_type_id, ret_nregs = 1;
  	struct bpf_kfunc_desc *desc;
  	struct btf *desc_btf;
 +	int scalar_max = -1;
  	int id;
  
  	/* skip for now, but return error when we find this in fixup_kfunc_call */
-@@ -13747,6 +13779,9 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
- 	err = check_kfunc_args(env, &meta, insn_idx);
+@@ -15520,6 +15552,9 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
+ 	err = check_func_args(env, &meta, insn_idx);
  	if (err < 0)
  		return err;
 +	err = scalar_bitop_return_max(env, &meta, &scalar_max);
 +	if (err)
 +		return err;
  
- 	if ((is_bpf_obj_drop_kfunc(meta.func_id) ||
- 	     is_bpf_percpu_obj_drop_kfunc(meta.func_id)) && (is_tracing_prog_type(prog_type) ||
-@@ -13915,6 +13950,11 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
+ 	err = mark_raw_stack(env, &meta, insn_idx);
+ 	if (err)
+@@ -15693,6 +15728,11 @@ static int check_kfunc_call(struct bpf_verifier_env *env, struct bpf_insn *insn,
  
  	if (btf_type_is_scalar(t)) {
- 		mark_reg_unknown(env, regs, BPF_REG_0);
+ 		ret_nregs = mark_kfunc_ret_regs(env, regs, t->size);
 +		if (scalar_max >= 0) {
 +			regs[BPF_REG_0].var_off = tnum_range(0, scalar_max);
 +			reg_set_urange64(&regs[BPF_REG_0], 0, scalar_max);
@@ -255,7 +265,7 @@ index e421ea2..d4e039c 100644
  			__mark_reg_const_zero(env, &regs[BPF_REG_0]);
 diff --git a/tools/testing/selftests/bpf/prog_tests/scalar_bitops.c b/tools/testing/selftests/bpf/prog_tests/scalar_bitops.c
 new file mode 100644
-index 0000000..195f9b5
+index 000000000000..195f9b5a74ff
 --- /dev/null
 +++ b/tools/testing/selftests/bpf/prog_tests/scalar_bitops.c
 @@ -0,0 +1,8 @@
@@ -269,7 +279,7 @@ index 0000000..195f9b5
 +}
 diff --git a/tools/testing/selftests/bpf/progs/scalar_bitops.c b/tools/testing/selftests/bpf/progs/scalar_bitops.c
 new file mode 100644
-index 0000000..700d500
+index 000000000000..700d500fb435
 --- /dev/null
 +++ b/tools/testing/selftests/bpf/progs/scalar_bitops.c
 @@ -0,0 +1,141 @@

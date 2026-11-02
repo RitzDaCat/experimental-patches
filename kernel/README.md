@@ -4,7 +4,7 @@
 | --- | --- | --- | --- |
 | [CachyOS 7.3](sched-ext/cachyos-7.3/) | `cachyos-7.3.1-1`, `36ae4c219cfb` | `series.all` | 2026-11-02: strict apply; 12 affected kernel objects compile. 2026-10-22 on 7.3.0-3: also the scalar-bitops BPF object and skeleton |
 | [TJ for 7.4](sched-ext-tj/for-7.4/) | `for-7.4`, `1f5dde349ac2` | `series.all` | 2026-10-22: same checks as CachyOS 7.3.0-3; kernel objects checked with proxy execution off and on |
-| [TJ integration](sched-ext-tj/for-next/) | `for-next`, `6de3fab67de6` | `series.all` | 2026-10-22: strict apply and affected-object build; proxy execution enabled |
+| [TJ integration](sched-ext-tj/for-next/) | `for-next`, `f7008fb94ee0` | `series.all` | 2026-11-02: strict apply and affected-object build; proxy execution enabled |
 
 There is no published CachyOS 7.4 tag in this pass. The 7.4 track uses TJ's
 explicit `for-7.4` development branch. Its source Makefile still says
