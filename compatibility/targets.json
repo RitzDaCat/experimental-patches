@@ -1,0 +1,412 @@
+{
+  "schema": 1,
+  "checked_on": "2026-10-22",
+  "scope": "Exact touched-file source preimages and upstream/package tracking; application is separate from build, boot and measurement.",
+  "targets": [
+    {
+      "id": "cachyos",
+      "component": "kernel/sched-ext",
+      "version": "7.3.0-3",
+      "patch_set": "kernel/sched-ext/cachyos-7.3.0",
+      "status": "applies",
+      "base": {
+        "repository": "https://github.com/CachyOS/linux",
+        "commit": "eb735bde05756eed779c2e6f4b893a24a83d78e3",
+        "tag": "cachyos-7.3.0-3"
+      },
+      "tracking": [
+        {
+          "kind": "package",
+          "url": "https://mirror.cachyos.org/repo/x86_64_v4/cachyos-znver4/",
+          "name": "linux-cachyos",
+          "version": "7.3.0-3"
+        },
+        {
+          "kind": "git",
+          "repository": "https://github.com/CachyOS/linux",
+          "ref": "refs/tags/cachyos-7.3.0-3",
+          "commit": "eb735bde05756eed779c2e6f4b893a24a83d78e3"
+        }
+      ],
+      "files": {
+        "Makefile": "b355257addd929ebd5785f72e6f926546e97c2a03ca7623623d56532e96ba47e",
+        "arch/x86/net/bpf_jit_comp.c": "bc6124c6d66e9fc9b810bf738dc2ad9c5181948ee350e5c5ffa81fb843a82e0f",
+        "drivers/dma-buf/dma-fence.c": "74cd1f45daba9dd0829f6c48ae4075c632baf2f61e41192959de12bf0ed26ae8",
+        "drivers/dma-buf/sync_file.c": "105f0913633a872f85c47120266beedd308bc5192a4d36950240bac2ca87c2fe",
+        "drivers/gpu/drm/drm_syncobj.c": "f632d5f3f7aad87f1ff914d2e7dafac4a3595df8473b3ceff7ab5a910dcf1cd9",
+        "drivers/input/evdev.c": "8405e9aa72effd33bb69213d0bca8335a9586746c88a3c58ac4b57247f497d5f",
+        "fs/eventfd.c": "ceea005bec9ca9eeabced64eeb4d8d3377be31382b9ff8824a1aa6989ea9b546",
+        "fs/eventpoll.c": "334e9bdb5b2e4366fcc6058681a93b3d5434663607401238fa73f63356cfe587",
+        "include/linux/eventfd.h": "3e4be8a75902ad79fb7f777a4e7e653850aa9cd592aceaf41f1ed5c905fda293",
+        "include/linux/filter.h": "2df20a081fb73f236814725ed700491f64be65a1061bef7eecef4220e513d6ec",
+        "include/linux/sched/ext.h": "73133fcf925ff66ec443447e99ad42452a561101f325393331de8847b7059eb4",
+        "kernel/bpf/helpers.c": "32d7b4904a645cfca7fea06d6e5cda19a34c5c74b3d03976ac7a4f6924cb7c8a",
+        "kernel/bpf/verifier.c": "fb7672f7b367c45e0d77640b3b2162a26e09475793ae521c3673d9f67d92032a",
+        "kernel/sched/core.c": "fa5969b6640d091bb8a0eae2384d93f4981a450ec3821823e5469bf69bad34bd",
+        "kernel/sched/ext/ext.c": "055e714f89190ac9406ab02a2c04b3d3aa33ca8da723a7d810eb81e48d04b4c4",
+        "kernel/sched/ext/ext.h": "6ca7d93490cc0628df1158fecd22a7bb4c46bca77bd96521659d0ee6af179559",
+        "kernel/sched/ext/idle.c": "1ced37dcdf28096dbb1205c0fbfe2868d079af514404c08ed8d001bed9c673bc",
+        "kernel/sched/ext/internal.h": "c9f492de9b89e27d69b2f1cb56ee03b5e1ecd9e24cc2bb1660eea639b7757a08",
+        "kernel/sched/sched.h": "c33ea09b92cbd25ae0df3ac3e61d8aeb5b358bdfd2f3a8c820d0a37d537b306c",
+        "kernel/sched/wait.c": "05a9c8d9b1b4cb3a63e1dd59744adf24c8912d108307f46d7e3a6b1f26013e5f"
+      },
+      "absent_files": [
+        "include/linux/sched/wake_signal.h",
+        "localversion.30-exp",
+        "tools/testing/selftests/bpf/prog_tests/scalar_bitops.c",
+        "tools/testing/selftests/bpf/progs/scalar_bitops.c"
+      ],
+      "patches": {
+        "0001-bpf-native-scalar-bitops.patch": "eda4e8d18bf91ecd0f2ce0f079d0228816730f3db990d281b8c47c4dce49bd23",
+        "0002-sched-ext-lean-idle-claim.patch": "c3be40a98c64ea40b25824716c5136b6d025ed373978738456fe55c56290a3a8",
+        "0003-sched-ext-dsq-direct-index.patch": "96dfa23e168e0d4e973108a4af6496cce2799128120551db2b6fb0017f7fb742",
+        "0004-sched-wake-signals.patch": "eef17f1c7abb95257fc7617daaeaa667c8d56f3f698e5565ed715c1aabdd8b5c",
+        "0005-identify-experimental-build.patch": "e2c49644e9878ae17627b92e9ce951622c90ed72b295d723964fc0778d444de0"
+      },
+      "series": "series.all"
+    },
+    {
+      "id": "tj-7-4",
+      "component": "kernel/sched-ext-tj",
+      "version": "for-7.4",
+      "patch_set": "kernel/sched-ext-tj/for-7.4",
+      "status": "applies",
+      "base": {
+        "repository": "https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/",
+        "commit": "1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338",
+        "branch": "for-7.4"
+      },
+      "tracking": [
+        {
+          "kind": "git",
+          "repository": "https://kernel.googlesource.com/pub/scm/linux/kernel/git/tj/sched_ext",
+          "ref": "refs/heads/for-7.4",
+          "commit": "1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338"
+        }
+      ],
+      "series": "series.all",
+      "patches": {
+        "0001-bpf-native-scalar-bitops.patch": "59b3c263eed24768cc609021d905277f707f5ccfc2b73b022e8552153b291502",
+        "0002-sched-ext-lean-idle-claim.patch": "3cd96713e9c80a8c5e03e6dd8707b7fb7795c2ba12917e33bccce305d7cfa6a8",
+        "0003-sched-ext-dsq-direct-index.patch": "a0c2c6883b5f2a14a36ec928c7a7e3271660a21241404aecac2ef7ec8a04140a",
+        "0004-sched-wake-signals.patch": "b9c1770a80c28a841a204df406934f718a5f4420c6405073e943f63efd587d28",
+        "0005-identify-experimental-build.patch": "379ee131cebdc86c134eb71cb71259a237a528e1fb753b8aced4afcd43d623ae"
+      },
+      "files": {
+        "Makefile": "2ed4185f07916d1480e22a14d2ae8bd39f25ffc71a4781bf8d4a41f763949b69",
+        "arch/x86/net/bpf_jit_comp.c": "8d4bf9c527c8da7c89240ab4bf5fccf4bcf051b8ee866038373fdb1940c23ae4",
+        "drivers/dma-buf/dma-fence.c": "520a25bcb3d5a250720aa70be3e53c014cae173cb27a2140a0c0cd3b6d44ee53",
+        "drivers/dma-buf/sync_file.c": "105f0913633a872f85c47120266beedd308bc5192a4d36950240bac2ca87c2fe",
+        "drivers/gpu/drm/drm_syncobj.c": "2ebc4953a5a96435dd95659831b2e36f49f4ce5239aa90f3b37519258c746dd0",
+        "drivers/input/evdev.c": "d452e5753d738255453e8e5ed7ace7c9d53b06d0017000aacfe250a56cff5b65",
+        "fs/eventfd.c": "ceea005bec9ca9eeabced64eeb4d8d3377be31382b9ff8824a1aa6989ea9b546",
+        "fs/eventpoll.c": "334e9bdb5b2e4366fcc6058681a93b3d5434663607401238fa73f63356cfe587",
+        "include/linux/eventfd.h": "3e4be8a75902ad79fb7f777a4e7e653850aa9cd592aceaf41f1ed5c905fda293",
+        "include/linux/filter.h": "6c243319aaec8ce240e7bb8044cbbf4f75ac65bcb4e8957d6ada126d91b17473",
+        "include/linux/sched/ext.h": "f5e7fa5f4e735c5fa3d395da5bd22708a195feb746f2ee0e07145dc610aa973b",
+        "kernel/bpf/helpers.c": "dec19e82973ffc1277c5c809ce6082fb286ff06874729e0844ca8aa2caec6c77",
+        "kernel/bpf/verifier.c": "98781b423ccd8145bf64f708042c06e5e13c4a5c558d7919a526b92384d47c03",
+        "kernel/sched/core.c": "926ebf14e8799ebfe4ec91b6689758797068101acff72a6db481962d54f59bfa",
+        "kernel/sched/ext/ext.c": "005656c7b8a7c83012d55e235a957aef01f0229bc9fe20a5876eecf617c78fa2",
+        "kernel/sched/ext/ext.h": "2f59332508782b80352f18cdca5f5ddd0aaa06972b2a3dd22e0a3f9c0cc9c5ad",
+        "kernel/sched/ext/idle.c": "2de25e5d0f877cd23fdde4e615f961a86114b1f398010c90602ae34454b338cc",
+        "kernel/sched/ext/internal.h": "9b5c23fbfeee17787124e8f7198794ac003a9684cdaca25eee35183fd774595d",
+        "kernel/sched/sched.h": "3c8aa53927ef2438db09b566b366c8d53aec91169f31eb3368919727e742f22d",
+        "kernel/sched/wait.c": "be48d6f642ab3a31d9ffadbac18a424734af8057aad49b343d3cd62b697683ae"
+      },
+      "absent_files": [
+        "include/linux/sched/wake_signal.h",
+        "localversion.30-exp",
+        "tools/testing/selftests/bpf/prog_tests/scalar_bitops.c",
+        "tools/testing/selftests/bpf/progs/scalar_bitops.c"
+      ]
+    },
+    {
+      "id": "tj-sched-ext",
+      "component": "kernel/sched-ext-tj",
+      "version": "for-next",
+      "patch_set": "kernel/sched-ext-tj/for-next",
+      "status": "applies",
+      "base": {
+        "repository": "https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/",
+        "commit": "6de3fab67de6b6765f8d7146dc03eda38f8ffc79",
+        "branch": "for-next"
+      },
+      "tracking": [
+        {
+          "kind": "git",
+          "repository": "https://kernel.googlesource.com/pub/scm/linux/kernel/git/tj/sched_ext",
+          "ref": "refs/heads/for-next",
+          "commit": "6de3fab67de6b6765f8d7146dc03eda38f8ffc79"
+        }
+      ],
+      "files": {
+        "Makefile": "2ed4185f07916d1480e22a14d2ae8bd39f25ffc71a4781bf8d4a41f763949b69",
+        "arch/x86/net/bpf_jit_comp.c": "8d4bf9c527c8da7c89240ab4bf5fccf4bcf051b8ee866038373fdb1940c23ae4",
+        "drivers/dma-buf/dma-fence.c": "520a25bcb3d5a250720aa70be3e53c014cae173cb27a2140a0c0cd3b6d44ee53",
+        "drivers/dma-buf/sync_file.c": "105f0913633a872f85c47120266beedd308bc5192a4d36950240bac2ca87c2fe",
+        "drivers/gpu/drm/drm_syncobj.c": "2ebc4953a5a96435dd95659831b2e36f49f4ce5239aa90f3b37519258c746dd0",
+        "drivers/input/evdev.c": "d452e5753d738255453e8e5ed7ace7c9d53b06d0017000aacfe250a56cff5b65",
+        "fs/eventfd.c": "ceea005bec9ca9eeabced64eeb4d8d3377be31382b9ff8824a1aa6989ea9b546",
+        "fs/eventpoll.c": "334e9bdb5b2e4366fcc6058681a93b3d5434663607401238fa73f63356cfe587",
+        "include/linux/eventfd.h": "3e4be8a75902ad79fb7f777a4e7e653850aa9cd592aceaf41f1ed5c905fda293",
+        "include/linux/filter.h": "6c243319aaec8ce240e7bb8044cbbf4f75ac65bcb4e8957d6ada126d91b17473",
+        "include/linux/sched/ext.h": "f5e7fa5f4e735c5fa3d395da5bd22708a195feb746f2ee0e07145dc610aa973b",
+        "kernel/bpf/helpers.c": "dec19e82973ffc1277c5c809ce6082fb286ff06874729e0844ca8aa2caec6c77",
+        "kernel/bpf/verifier.c": "98781b423ccd8145bf64f708042c06e5e13c4a5c558d7919a526b92384d47c03",
+        "kernel/sched/core.c": "926ebf14e8799ebfe4ec91b6689758797068101acff72a6db481962d54f59bfa",
+        "kernel/sched/ext/ext.c": "dca454704eeaca3c6f1cb8791f1bee0e9333b536e612d09fbe32c7831a80ee21",
+        "kernel/sched/ext/ext.h": "2f59332508782b80352f18cdca5f5ddd0aaa06972b2a3dd22e0a3f9c0cc9c5ad",
+        "kernel/sched/ext/idle.c": "2de25e5d0f877cd23fdde4e615f961a86114b1f398010c90602ae34454b338cc",
+        "kernel/sched/ext/internal.h": "eb434a85d1c7357291ecc234d97f40562c3b905ffdda3af5b537c66aafdef86d",
+        "kernel/sched/sched.h": "26d4b02cfa4fdaaeec7ff9ce397e458328d5fc44a05798bcc2b24406d192b100",
+        "kernel/sched/wait.c": "be48d6f642ab3a31d9ffadbac18a424734af8057aad49b343d3cd62b697683ae"
+      },
+      "absent_files": [
+        "include/linux/sched/wake_signal.h",
+        "localversion.30-exp",
+        "tools/testing/selftests/bpf/prog_tests/scalar_bitops.c",
+        "tools/testing/selftests/bpf/progs/scalar_bitops.c"
+      ],
+      "patches": {
+        "0001-bpf-native-scalar-bitops.patch": "01831d296c5c08f8be561ae48191132dba7860760ecca6d590705178cde60bff",
+        "0002-sched-ext-lean-idle-claim.patch": "b5bf22b8a04c69d1f53ed94756748abd858da495eccbb58e905a2daa46ba8cc2",
+        "0003-sched-ext-dsq-direct-index.patch": "decf560db74dbea70b7270c79e1f58fe3a7c0251acb776995ef7c733854c0ed7",
+        "0004-sched-wake-signals.patch": "4563b6c45ec566e273f32686aaaa62ec3d4c8b4f06b1480805f851f3dced12b5",
+        "0005-identify-experimental-build.patch": "de74b4b9b8ccd77f368fccdc63ade49c37b6a6ad2d837d68b4dc6f1def98d7eb"
+      },
+      "series": "series.all"
+    },
+    {
+      "id": "scx-cake",
+      "component": "scheduler/scx-cake",
+      "version": "1.2.2",
+      "patch_set": "scheduler/scx-cake/v1.2.2",
+      "status": "applies",
+      "base": {
+        "repository": "https://github.com/sched-ext/scx",
+        "commit": "e7b3a219617472cf78880ac424714e52c932db61",
+        "tag": "v1.1.4"
+      },
+      "tracking": [
+        {
+          "kind": "package",
+          "url": "https://geo.mirror.pkgbuild.com/extra/os/x86_64/",
+          "name": "scx-scheds",
+          "version": "1.1.4-1"
+        },
+        {
+          "kind": "git",
+          "repository": "https://github.com/sched-ext/scx",
+          "ref": "refs/tags/v1.1.4",
+          "commit": "e7b3a219617472cf78880ac424714e52c932db61"
+        }
+      ],
+      "files": {
+        "Cargo.lock": "0403f48c08db4f14cd72d08be2f6c0766a8f2a0af50762eec3d3978f087342a0",
+        "scheds/rust/scx_cake/Cargo.toml": "9af2fb086d59f45ed9208631f660236d5bb2b065c1f007ec5ddc0a2def6a887f"
+      },
+      "absent_files": [],
+      "patches": {
+        "0001-identify-experimental-build.patch": "e2545c7f541f78e46ed8464b40cbf642739d861f775e22a13c03e4e66ea1f671"
+      }
+    },
+    {
+      "id": "scx-cake-nightly",
+      "component": "scheduler/scx-cake",
+      "version": "nightly",
+      "patch_set": "scheduler/scx-cake/nightly",
+      "status": "applies",
+      "base": {
+        "repository": "https://github.com/RitzDaCat/scx",
+        "commit": "4b6d2c4240a558624ddd705eec8627f54a0ce240",
+        "branch": "RitzDaCat/scx_cake-nightly"
+      },
+      "tracking": [
+        {
+          "kind": "git",
+          "repository": "https://github.com/RitzDaCat/scx",
+          "ref": "refs/heads/RitzDaCat/scx_cake-nightly",
+          "commit": "4b6d2c4240a558624ddd705eec8627f54a0ce240"
+        }
+      ],
+      "files": {
+        "Cargo.lock": "da68dc7dee53649dae9a75e6ae888e459660efd2b9ccf093cfc309944fc6412a",
+        "scheds/rust/scx_cake/Cargo.toml": "d7fee546d7fcd5e16a11dfe5a276401fa45615e4334ed5dafa66330c89f6b5fa"
+      },
+      "absent_files": [],
+      "patches": {
+        "0001-identify-experimental-build.patch": "b38432573aaae9cb52069af062d487987af8b8494f61e43b8943e30786bfb0fa"
+      }
+    },
+    {
+      "id": "kwin",
+      "component": "compositor/kwin",
+      "version": "6.8.1-1.1",
+      "patch_set": "compositor/kwin/v6.7.5/patches",
+      "status": "port-required",
+      "base": {
+        "archive": "https://download.kde.org/stable/plasma/6.8.1/kwin-6.8.1.tar.xz",
+        "archive_sha256": "f3d725f81061c1ba97fdef8aeb2101a5c5e03c77f11e9a2abaa1dfed4489d3b6"
+      },
+      "tracking": [
+        {
+          "kind": "package",
+          "url": "https://mirror.cachyos.org/repo/x86_64_v4/cachyos-extra-znver4/",
+          "name": "kwin",
+          "version": "6.8.1-1.1"
+        }
+      ],
+      "skip_patches": {
+        "0001-precise-timer.patch": {
+          "status": "upstream",
+          "reason": "PreciseTimer is included in KWin 6.8.1."
+        },
+        "0002-renderloop-timerfd.patch": {
+          "status": "upstream",
+          "reason": "KWin 6.8.1 uses PreciseTimer in its render loop."
+        },
+        "0013-exact-kernel-nvidia-color-pipeline.patch": {
+          "status": "superseded",
+          "reason": "KWin 6.8 enables plane color pipelines upstream; compensation still needs its own opt-in gate during the port."
+        }
+      },
+      "files": {
+        "autotests/drm/mockDrmTest.cpp": "0797d0b0112949ed45de2215a5faba8bc0320b5325c0e13172a75b330504a430",
+        "autotests/test_colorspaces.cpp": "e977619b5ad0688ef694a0e1ce06b68b86811640643e4bebb2e1eba3ca10e45a",
+        "src/backends/drm/drm_colorop.cpp": "89f6e483e2fd57a5893991d193bb4da151784f03fc93f72a37929ce07fc1c11f",
+        "src/backends/drm/drm_colorop.h": "4a4f1cc371c275068b3bc36cf0f3d4da2c720440f2dbddb96213f8b8c609a044",
+        "src/backends/drm/drm_commit_thread.cpp": "b1dbb14c135287475a9732d5696fc1b7351a2bfb10b82c649391fd3f8a40e725",
+        "src/backends/drm/drm_commit_thread.h": "3b11fc51d145155533125fd0a58f9a78cf183de4b07ef80560793120bec1077b",
+        "src/backends/drm/drm_egl_layer.cpp": "c4dd571def98b737413a01aca77bd922c636a4137b35639b25ce7c418e2d681f",
+        "src/backends/drm/drm_egl_layer.h": "aa26a30dfbaafb3e0a16848d46dee6927ba3717d49c03bb1b6f2fde1c3256bc0",
+        "src/backends/drm/drm_gpu.cpp": "90141bb907baf9ee3440a84bed4dccb2300d9ddd718358c122ecb5ebbc360e30",
+        "src/backends/drm/drm_pipeline.cpp": "58849f005db67360a94215ac3a78435f4f6e359373d3c31c2ae5afa975729b40",
+        "src/backends/drm/drm_plane.cpp": "54604ed30d79365d3c34ea26509dfab299c40278364dbd679a45e2bb08449f0b",
+        "src/backends/drm/drm_plane.h": "a1cca9f1ebb23459efcc4de1c5f56c9710608876d3cc64fe37abfe7ed189bd4e",
+        "src/backends/libinput/connection.cpp": "a761fe069027ebc7d3f15148207326ee9610b8107db1648c04d0d0b1791d2b8a",
+        "src/backends/libinput/connection.h": "d1ccf9f5ec26086a8e84a9e961328ed7bb5c210483ecfb2e28bb2a5b051c6522",
+        "src/backends/libinput/events.h": "ea264682c44cb82bba301804062aa4117cbfda0603120b814be0b29d961d04e1",
+        "src/compositor.cpp": "d627db777865ab0fd6558de36b5c86679f7f209e170c322e100b408e13e785c8",
+        "src/core/colorspace.cpp": "37548ddf0ecc10bcdc586f059b0c98dcd780684911ca92ec42d20d2a7b809de5",
+        "src/core/outputlayer.cpp": "8cc82963ccfff31b5d2dcab36147ba5894e1bafccefd1f1f14153376ac6251eb",
+        "src/core/outputlayer.h": "fd9827134ff4ed2c10776167afc2c08848c172a4f0e7f849c96f9d5906d56cd5",
+        "src/core/renderbackend.cpp": "86eb79c7369d9a4d38167230ea2757234fc1162fe89dfc2952c1c96a44504cdd",
+        "src/core/renderbackend.h": "75ac9497337e10db0a0547ef357005bf820e48cc27e7b053c09fdbc58fef8097",
+        "src/core/renderloop.cpp": "8d768ace200d5725f5e5b1affeaf9ddc1ff5c79c563a4e5d72e26fdc9f1abef1",
+        "src/core/renderloop.h": "5395d1b4f11fff598cb8d3feb481b0c11c2dccb883a9864b4e7bd5a2338c44c6",
+        "src/core/renderloop_p.h": "ee2c8bef2446c95239da276aa8b30cfcd15e9eef57a5c02227e06854532cef0e",
+        "src/opengl/colormanagement.glsl": "11dc02113088935ae55a542298d626ee0b7769c547460792523fb94d5049ffee",
+        "src/opengl/glrendertimequery.cpp": "46f25bc4c185581c08e6bc741d37f2bf292a9300da0bbf087380998a52a05a8d",
+        "src/opengl/glshader.cpp": "07c64c3ffe5ac4b85414bd0e62bbf2f9b51d9eb8e2a9682a4a3cf389a755469c",
+        "src/opengl/glshader.h": "fd58235aa6304c98427f5d0f18d60389c7dc6e3a658dea6a6803ef1e7629e458",
+        "src/opengl/glshadermanager.cpp": "235b09e29075a8d298ec8de7ff9a48bd636d295132698a5a93002a4f43098005",
+        "src/opengl/glshadermanager.h": "ebf536007a4956c8739376fd8c81725701651ae13ba38119e24f5a05468915b4",
+        "src/scene/itemrenderer_opengl.cpp": "3d809a21f21843f0144cb487187fe382468aea9a8cb994403b26593043f13280",
+        "src/scene/itemrenderer_opengl.h": "14cf47a5ddd06b4c48264240ead5261c294d032f8fa1f384d8d27d1f236bdbed",
+        "src/utils/CMakeLists.txt": "226f1adb946ab0a4e9e6dc338339bf2d325e191ada1c2704c5ce784601c41ced",
+        "src/utils/precisetimer.cpp": "5f4cf7d32904b9c947951912f943da3cdde3815e48663ee51d02a0f8f1da0f1f",
+        "src/utils/precisetimer.h": "fe221a9769b20530ca818507c01cd469e8f36d5471abcfbb22db3324e8c4b67f"
+      },
+      "absent_files": [],
+      "patches": {
+        "0001-precise-timer.patch": "7450b4581230d8dc29d62dca058eabd19a55b0ed0ba4c750cb68c7d1a5dcb894",
+        "0002-renderloop-timerfd.patch": "51e3d3e2b2f509137a0f781908c001c2040fe1eef71e03b3203e4be99b0afac9",
+        "0003-wakeup-instrumentation.patch": "b1038bba5e51fcb604bc166d90e42856fe1cf5a60df7f504da28443a60851882",
+        "0004-adaptive-wakeup-margin.patch": "efa6cbf92869748fb5af9a55bf2c11946b27acdf22d39289593eb0d1067b6d8d",
+        "0005-kernel-release-gate.patch": "472d665e08c2908723ae6c03aeb601e57a10a34b4a4b1baf5153cfa53d20b503",
+        "0006-adaptive-margin-v2.patch": "ee200b771472c52136f13f80e838a75b2b2760b891b25f31dfa9379b77051f37",
+        "0007-backends-libinput-add-gated-input-queue-telemetry.patch": "175e8072d083c2ee22d22c273afd81089f02a2d763323b1630e3c2ed9037a01f",
+        "0008-telemetry-sample-observers-outside-nanosecond-hot-paths.patch": "25e3de51b1c1971b14768ef8cfed8ec3829e3be56729871d4adce4263f88d668",
+        "0009-adaptive-render-budget.patch": "2c6e1316cb6560a96cd9ecaf3bd4b0eb42f01763254a085ac54782330fc16ed1",
+        "0010-vrr-cadence-repaint-coalescing.patch": "733bf3be236a522edd5d8e026d583744e26f571f0ca3b458277fc92bc99e779b",
+        "0011-bounded-latency-capture.patch": "0eb4c75383a48c189c8532e21b47c94530021af5b6841a3049cc6fb92a4826c6",
+        "0012-reason-coded-capture.patch": "fa1713170a241824fc8569894cf8886d011a1cf2bdc8d5c7998a879c6d9dc526",
+        "0013-exact-kernel-nvidia-color-pipeline.patch": "767dfaa01f65e43d6207e86d48fc13dbfef70c3ed81b191720f663d13c67375e",
+        "0014-fix-inverse-srgb-linear-segment.patch": "1b2b7bab6e49c1af5e51c6afe9705d82b04d62853ad5b1c36e72c6ee7731cc93",
+        "0015-bounded-color-hot-path-cache.patch": "ed5b6636639d8717cc37ac2a525b3f5c24dca0b706aedf910607cda972ade752",
+        "0016-compensate-mandatory-color-pipeline-curves.patch": "8daacf1ad1077e813fb89c7c5fcc62f37f7347335e4552f702f34aef0105d71e",
+        "0017-exact-frame-and-color-capture.patch": "37224e9eccb561e45c06fca9cb54e8d2937b8355a172acdc576cd64fea06161c",
+        "0018-guard-wake-sample-consumption.patch": "3409c879cbe6694472df88d3a44be97043d5ea5952f93c2780690505671db4f1",
+        "0019-default-low-latency-policy.patch": "ce5bb1ff8d2b63c4589ca6103ce17638cd1fd2c90418c4f6bd3216036b0f1674",
+        "0020-runtime-optin-latency-policy.patch": "e37e115f3248bec356b51cbf0771e0e42b5f79a375eaf94cc2ca75641b9d5166",
+        "0021-selectable-mandatory-csc-pq-scale.patch": "6a110596fe0b31330e205b9c541fb73713d544d2aacc5d5fde0100fd0f6cca44"
+      }
+    },
+    {
+      "id": "goxlr",
+      "component": "audio/goxlr-utility",
+      "version": "1.2.4-2",
+      "patch_set": "audio/goxlr-utility/v1.2.4",
+      "status": "applies",
+      "base": {
+        "repository": "https://github.com/GoXLR-on-Linux/goxlr-utility",
+        "commit": "0c093b4c9bfb59d3426357c008760ad6620f97ae"
+      },
+      "tracking": [
+        {
+          "kind": "package",
+          "url": "https://mirror.cachyos.org/repo/x86_64/cachyos/",
+          "name": "goxlr-utility",
+          "version": "1.2.4-2"
+        },
+        {
+          "kind": "git",
+          "repository": "https://github.com/GoXLR-on-Linux/goxlr-utility",
+          "ref": "refs/tags/v1.2.4",
+          "commit": "0c093b4c9bfb59d3426357c008760ad6620f97ae"
+        }
+      ],
+      "files": {
+        "audio/src/audio.rs": "c15e5634287d9f9cc440fa180c4b9fe966417ef3a677a5e0e96b670340c83018",
+        "audio/src/cpal/cpal_record.rs": "b62c52451bb5ef6bcd3443b1b3a56b9136375ad7f043f1628ffd0fe0f81991ab",
+        "audio/src/pulse/pulse_record.rs": "299df6c59d512279fa58cbf9c263f3bd98d8617866ce8f52858cbfe72ccdc451",
+        "daemon/src/cli.rs": "9eaf2e76c95f7031cd5edde4a93f43f7d2a392427b3ea3cb3a8a0ba0ab165628",
+        "daemon/src/main.rs": "79350e26a42c1d26e027a1f7f26577d6ffa12fa919b3f047e303640767eea6eb"
+      },
+      "absent_files": [],
+      "patches": {
+        "0001-audio-reuse-input-read-buffers.patch": "51a2e72f8abe44575bfa2eb8850da5729d36dbddd344a21a3a36733a93fa1b16",
+        "0002-identify-experimental-build.patch": "da19983a8b9ddade4ba59c3b5be2c97bd117f0527f745ca31ee20b7e4ceb0035"
+      }
+    },
+    {
+      "id": "mangohud",
+      "component": "tools/mangohud",
+      "version": "0.8.4-1.1",
+      "patch_set": "tools/mangohud/v0.8.4",
+      "status": "applies",
+      "base": {
+        "repository": "https://github.com/flightlessmango/MangoHud",
+        "commit": "992103e4fb744897826de04ea00a2f71e7018214"
+      },
+      "tracking": [
+        {
+          "kind": "package",
+          "url": "https://mirror.cachyos.org/repo/x86_64_v4/cachyos-extra-znver4/",
+          "name": "mangohud",
+          "version": "0.8.4-1.1"
+        },
+        {
+          "kind": "git",
+          "repository": "https://github.com/flightlessmango/MangoHud",
+          "ref": "refs/tags/v0.8.4",
+          "commit": "992103e4fb744897826de04ea00a2f71e7018214"
+        }
+      ],
+      "files": {
+        "src/mesa/util/os_socket.c": "aaccf9c7e0a5bb86f0c2b831cb7bc1db20173870b577eac58ff4edd92c07444c",
+        "src/meson.build": "b4b611e3a067113a97d26659883a0f00ded210296398e52f0aeeca779cc04939",
+        "src/overlay_params.cpp": "cf773d840ed97666ba1a607bc66f07e7b0b7db946d821e832457a12a734001bb",
+        "src/vulkan.cpp": "7636427cdbb23fb825284f440cb14fe8a1659eb787ab7b3b95a8cf25cbcd0e64",
+        "version.h.in": "fc4ef1450de4950ae694c129992a1a58401a459b07a9515e12bfcb8a3647e516"
+      },
+      "absent_files": [],
+      "patches": {
+        "0001-os_socket-set-CLOEXEC-and-stop-leaking-fds.patch": "b77fc3d6d3021c344c72073af9026aea2325afec745cf50689e8d5b2e380fd83",
+        "0002-control-share-one-listening-socket-across-Vulkan-ins.patch": "59cae95222865321175f63eaf4eb5f004f5d99f0cee1c9b3ca62d59843997bf5",
+        "0003-identify-experimental-build.patch": "dc3494275a33140a9a019b4d9e665f228720c70b9fa3a11deb790d98489a76e5"
+      }
+    }
+  ]
+}

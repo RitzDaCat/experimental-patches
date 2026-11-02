@@ -54,9 +54,37 @@
     },
     {
       "component": "kernel/sched-ext",
+      "version": "cachyos-7.3.0",
+      "path": "kernel/sched-ext/cachyos-7.3.0",
+      "current": true,
+      "base": {
+        "repository": "https://github.com/CachyOS/linux",
+        "commit": "eb735bde05756eed779c2e6f4b893a24a83d78e3",
+        "tag": "cachyos-7.3.0-3"
+      },
+      "series": {
+        "default": [
+          "0005-identify-experimental-build.patch"
+        ],
+        "all": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-lean-idle-claim.patch",
+          "0003-sched-ext-dsq-direct-index.patch",
+          "0004-sched-wake-signals.patch",
+          "0005-identify-experimental-build.patch"
+        ],
+        "proven": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-lean-idle-claim.patch",
+          "0005-identify-experimental-build.patch"
+        ]
+      }
+    },
+    {
+      "component": "kernel/sched-ext",
       "version": "cachyos-7.2.10",
       "path": "kernel/sched-ext/cachyos-7.2.10",
-      "current": true,
+      "current": false,
       "base": {
         "repository": "https://github.com/CachyOS/linux",
         "commit": "11636526a2d2d35ecec28570a6dd75d5e70003bc",
@@ -103,13 +131,85 @@
       }
     },
     {
+      "component": "kernel/sched-ext-tj",
+      "version": "for-next",
+      "path": "kernel/sched-ext-tj/for-next",
+      "current": true,
+      "base": {
+        "repository": "https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/",
+        "commit": "6de3fab67de6b6765f8d7146dc03eda38f8ffc79",
+        "branch": "for-next"
+      },
+      "series": {
+        "default": [
+          "0005-identify-experimental-build.patch"
+        ],
+        "all": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-lean-idle-claim.patch",
+          "0003-sched-ext-dsq-direct-index.patch",
+          "0004-sched-wake-signals.patch",
+          "0005-identify-experimental-build.patch"
+        ],
+        "proven": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-lean-idle-claim.patch",
+          "0005-identify-experimental-build.patch"
+        ]
+      }
+    },
+    {
+      "component": "kernel/sched-ext-tj",
+      "version": "for-7.4",
+      "path": "kernel/sched-ext-tj/for-7.4",
+      "current": false,
+      "base": {
+        "repository": "https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/",
+        "commit": "1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338",
+        "branch": "for-7.4"
+      },
+      "series": {
+        "default": [
+          "0005-identify-experimental-build.patch"
+        ],
+        "all": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-lean-idle-claim.patch",
+          "0003-sched-ext-dsq-direct-index.patch",
+          "0004-sched-wake-signals.patch",
+          "0005-identify-experimental-build.patch"
+        ],
+        "proven": [
+          "0001-bpf-native-scalar-bitops.patch",
+          "0002-sched-ext-lean-idle-claim.patch",
+          "0005-identify-experimental-build.patch"
+        ]
+      }
+    },
+    {
+      "component": "scheduler/scx-cake",
+      "version": "v1.2.2",
+      "path": "scheduler/scx-cake/v1.2.2",
+      "current": true,
+      "base": {
+        "repository": "https://github.com/sched-ext/scx",
+        "commit": "e7b3a219617472cf78880ac424714e52c932db61",
+        "tag": "v1.1.4"
+      },
+      "series": {
+        "default": [
+          "0001-identify-experimental-build.patch"
+        ]
+      }
+    },
+    {
       "component": "scheduler/scx-cake",
       "version": "nightly",
       "path": "scheduler/scx-cake/nightly",
-      "current": true,
+      "current": false,
       "base": {
         "repository": "https://github.com/RitzDaCat/scx",
-        "commit": "fe076988f7fc1fdc0f42ea1278f89bed62b64a01",
+        "commit": "4b6d2c4240a558624ddd705eec8627f54a0ce240",
         "branch": "RitzDaCat/scx_cake-nightly"
       },
       "series": {

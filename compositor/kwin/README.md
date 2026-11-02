@@ -1,5 +1,10 @@
 # KWin
 
+**Current target: KWin 6.8.1-1.1; port required.** The included 6.7.5 series
+does not apply to 6.8.1. See the [compatibility matrix](../../compatibility/)
+for exact results and the port queue. Do not use this older bundle to replace
+a Plasma 6.8 compositor.
+
 The complete [KWin 6.7.5 bundle](v6.7.5/) is included here: all 21 patches,
 the Arch package recipe, installer, opt-in and per-game wrappers, capture tools,
 tests and source references. No private repository is needed.

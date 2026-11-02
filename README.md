@@ -22,6 +22,15 @@ flowchart LR
 Some entries are fixes or upstream backports; most have **no proven game-performance benefit
 yet**. Each patch set states its evidence and limitations.
 
+**Current pass (2026-10-22):** full kernel ports are available for CachyOS
+`7.3.0-3` and TJ's `for-7.4` / `for-next` development branches. They pass strict
+application and affected-object build checks; boot/runtime tests remain open.
+KWin `6.8.1-1.1` still needs a port. GoXLR and MangoHud match current package
+sources. See the [compatibility matrix](compatibility/) and
+[kernel test tracks](kernel/). There is no published CachyOS 7.4 tag yet.
+The final mirror check advertised package `7.3.0-4` without a corresponding
+published source identity; the tested 7.3 source pin remains `7.3.0-3`.
+
 ---
 
 ## ⚠️ Risks
@@ -42,9 +51,11 @@ yet**. Each patch set states its evidence and limitations.
 
 | Area | Patch set | Base | In short | Status |
 | --- | --- | --- | --- | --- |
-| 🐧 Kernel | [sched-ext](kernel/sched-ext/cachyos-7.2.10/) | CachyOS 7.2.10-1 (7.2.9 kept) | cheaper, better-informed sched_ext scheduling | ✅ proven: 1 bitops, 2 lean idle (KovaaK's 1 % low +7.5 %) · 🧪 unproven: 3 DSQ index, 4 wake signals · `series` = all (maintainer's kernel), `series.proven` = 1, 2 |
+| Kernel | [sched-ext 7.3](kernel/sched-ext/cachyos-7.3.0/) | CachyOS 7.3.0-3 | bitops, lean idle, DSQ indexing, wake signals | `series.all` = all features; strict apply + affected objects + BPF test object build; unbooted, unmeasured |
+| Kernel | [TJ development tracks](kernel/sched-ext-tj/) | pinned `for-7.4` and `for-next` | all four features rebased onto upstream development | strict apply + affected-object builds; separate source pins; unbooted |
 | 🐧 Kernel | [sched-ext upstream candidates](kernel/sched-ext/upstream/) | CachyOS 7.2.9-1 | the two measured wins (bitops kfuncs, lean idle), each standalone, for review | applies + compiles alone · not for testers: no identity patch |
-| 🍰 Scheduler | [scx_cake identity](scheduler/scx-cake/nightly/) | public scx `scx_cake-nightly` `fe076988` | nightly already uses kernel patches 1, 2, 4; falls back on a stock kernel | identity patch only · builds |
+| Scheduler | [scx_cake release identity](scheduler/scx-cake/v1.2.2/) | scx-scheds 1.1.4 / Cake 1.2.2 | current CachyOS release source; identity only | strict application passes; refreshed series not built |
+| Scheduler | [scx_cake nightly identity](scheduler/scx-cake/nightly/) | public scx `scx_cake-nightly` `4b6d2c424` / Cake 1.2.1 | experimental consumer for kernel patches 1, 2, 4; falls back on a stock kernel | refreshed pin applies; earlier pin built |
 | 🪟 Compositor | [kwin](compositor/kwin/) | KWin 6.7.5 | compositor wakes later and more precisely | 21 patches + installer, opt-in, capture and rollback tools · input-to-photon gain not shown |
 | 🔊 Audio | [goxlr-utility](audio/goxlr-utility/v1.2.4/) | v1.2.4 | no buffer allocation per sampler read | builds · not live-tested |
 | 🛠️ Tools | [mangohud](tools/mangohud/v0.8.4/) | v0.8.4 | control socket fixes | daily use on the author's machine |
@@ -79,6 +90,9 @@ gives `component`, `version`, `path`, `current` (newest set of that component), 
 + commit/tag, or archive + SHA-256) and `series` (patch lists in apply order). Apply with
 `scripts/apply.sh <path> <source> [--series series.<name>]`, which checks the pinned hashes first.
 `kernel/sched-ext/upstream/` and `research/` are not patch sets and are not listed.
+`current` selects the newest available collection series. Consult
+[`compatibility/targets.json`](compatibility/targets.json) for distro/development target
+versions and whether they still need a port.
 
 ```bash
 jq -r '.sets[] | select(.component == "kernel/sched-ext" and .current) | .path' index.json
@@ -109,6 +123,10 @@ scripts/apply.sh <patch-set-directory> <source-directory>
 | ⚠️ | use a disposable source tree: a write failure during the final apply can leave partial changes |
 
 🪟 **KWin:** follow its [bundled guide](compositor/kwin/v6.7.5/TESTING.md) and installer (keeps the install and recovery checks).
+
+**New kernel ports:** explicitly add `--series series.all` for the complete
+feature stack. Their default `series` applies identity only while boot testing
+is pending. The compatibility checker records the full-series selection.
 
 ---
 

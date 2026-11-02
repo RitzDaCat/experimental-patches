@@ -1,0 +1,6 @@
+{
+  "repository": "https://git.kernel.org/pub/scm/linux/kernel/git/tj/sched_ext.git/",
+  "commit": "1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338",
+  "branch": "for-7.4",
+  "scope": "SHA-256 of pristine touched files, not the entire source tree"
+}

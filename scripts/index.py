@@ -22,6 +22,8 @@ def series_patches(path):
 def build():
     groups = {}
     for series in sorted(ROOT.rglob("series")):
+        if {"artifacts", ".git"} & set(series.relative_to(ROOT).parts):
+            continue
         directory = series.parent
         set_path = directory.relative_to(ROOT)
         # A set's own folder may be "patches/" under its version (KWin bundles tooling beside it).

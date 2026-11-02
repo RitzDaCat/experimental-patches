@@ -1,0 +1,31 @@
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Subject: [PATCH] scx_cake: identify experimental collection builds
+
+Base: scx v1.1.4, scx_cake 1.2.2. Keep the crate and lockfile versions
+paired so --locked builds identify themselves with -exp.
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 5b9d6cc..4f1698f 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -5923,7 +5923,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "scx_cake"
+-version = "1.2.2"
++version = "1.2.2-exp"
+ dependencies = [
+  "anyhow",
+  "clap",
+diff --git a/scheds/rust/scx_cake/Cargo.toml b/scheds/rust/scx_cake/Cargo.toml
+index 13e2a4c..087c51e 100644
+--- a/scheds/rust/scx_cake/Cargo.toml
++++ b/scheds/rust/scx_cake/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "scx_cake"
+-version = "1.2.2"
++version = "1.2.2-exp"
+ authors = ["RitzDaCat"]
+ edition = "2024"
+ rust-version = "1.91"

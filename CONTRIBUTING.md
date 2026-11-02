@@ -30,12 +30,20 @@ For each update:
 Use a new version directory when the source base changes. Preserve earlier
 published revisions through Git history.
 
+Keep the [compatibility targets](compatibility/) in sync: exact source identity,
+pristine touched-file hashes, patch hashes and public tracking refs/packages.
+Keep a requested port marked `port-required` until its complete ordered series
+passes. Record the target's selected series explicitly when it is `series.all`.
+TJ development candidates belong in `kernel/sched-ext-tj/for-7.4/` or `for-next/`;
+standalone upstream proposals remain in `kernel/sched-ext/upstream/`.
+
 ## Validation
 
 From the collection's root:
 
 ```bash
 bash -n scripts/apply.sh
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/index.py --check
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 cd compositor/kwin/v6.7.5
@@ -44,6 +52,10 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/generate_readme_graphs.py --check
 ```
 
 Metadata and fixture tests do not build, boot, install or measure the patches.
+`python3 scripts/check_compatibility.py --updates` performs the separate live
+currentness check; it currently exits 1 for the KWin port and documented
+CachyOS package/source drift.
+Source application checks and per-target commands are in [compatibility/](compatibility/).
 KWin's `bin/kwin-latencyctl test --source-only` additionally verifies the source
 series and 35-file overlay using the hash-pinned public release archive. It may
 download that archive temporarily if it is not already available locally.

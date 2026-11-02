@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from check_compatibility import load_manifest
+
 ROOT = Path(__file__).resolve().parents[1]
 KWIN = ROOT / "compositor/kwin/v6.7.5"
 # Apply-based builds report a version ending in -exp; KWin uses its package description.
@@ -25,7 +27,8 @@ def safe_path(value):
 def main():
     errors = []
     patch_count = 0
-    sets = sorted({p.parent for p in ROOT.rglob("series")})
+    sets = sorted({p.parent for p in ROOT.rglob("series")
+                   if not {"artifacts", ".git"} & set(p.relative_to(ROOT).parts)})
     if not sets:
         errors.append("no patch sets found")
     for directory in sets:
@@ -132,6 +135,10 @@ def main():
                            capture_output=True, text=True)
     if stale.returncode:
         errors.append("index.json is stale: run scripts/index.py")
+    try:
+        load_manifest()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        errors.append(f"invalid compatibility targets: {exc}")
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

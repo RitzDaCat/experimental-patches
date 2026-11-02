@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/CachyOS/linux",
+  "commit": "eb735bde05756eed779c2e6f4b893a24a83d78e3",
+  "tag": "cachyos-7.3.0-3",
+  "scope": "SHA-256 of pristine touched files, not the entire source tree"
+}

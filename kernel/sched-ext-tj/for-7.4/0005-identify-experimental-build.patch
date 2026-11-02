@@ -1,0 +1,15 @@
+From: RitzDaCat <49771174+RitzDaCat@users.noreply.github.com>
+Subject: [PATCH 5/5] kernel: identify experimental builds
+
+Base: TJ sched_ext for-7.4 at 1f5dde349ac2fca1f119ae8de3f0d2f1c2a8d338.
+Port of the experimental-patches kernel feature series.
+Identity only; no feature is enabled by this patch.
+No performance or boot result is implied by this source port.
+
+diff --git a/localversion.30-exp b/localversion.30-exp
+new file mode 100644
+index 0000000..5132f1d
+--- /dev/null
++++ b/localversion.30-exp
+@@ -0,0 +1 @@
++-exp

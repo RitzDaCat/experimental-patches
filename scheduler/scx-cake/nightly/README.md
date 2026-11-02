@@ -4,8 +4,14 @@ The public `scx_cake-nightly` branch already contains every consumer for the ker
 This folder only adds the identity patch, so a build names itself experimental.
 
 **Base:** public [RitzDaCat/scx](https://github.com/RitzDaCat/scx) branch `RitzDaCat/scx_cake-nightly`,
-pinned commit `fe076988f7fc1fdc0f42ea1278f89bed62b64a01` (`base.json`). The patch only touches the version line, so it
-applies to later nightly commits too; the pin moves when the version changes. **License:** GPL-2.0-only, matching scx_cake.
+pinned commit `4b6d2c4240a558624ddd705eec8627f54a0ce240` (`base.json`), the latest public
+branch head checked on 2026-10-22. The helper checks the pinned Cargo manifest and lockfile
+hashes. Refresh the pin and verify those hashes when the branch advances.
+**License:** GPL-2.0-only, matching scx_cake.
+
+This nightly reports Cake 1.2.1. The current CachyOS release source, Cake 1.2.2 in
+scx-scheds 1.1.4, has a separate [identity series](../v1.2.2/). That release does not
+contain this nightly's experimental kernel consumers.
 
 ## One build, any kernel
 
@@ -16,9 +22,9 @@ cost on a stock kernel.
 | Kernel patch | Cake detects | Without it |
 |---|---|---|
 | 1 native bitops | `bpf_ctz64` / `bpf_popcnt64` kfuncs + CPU BMI1 / POPCNT | portable builtins |
-| 2 DSQ direct index | nothing to detect (kernel-side) | hash lookup |
-| 3 wake signals | `SCX_OPS_WAKE_SIGNAL` in BTF + `scx_bpf_task_wake_signal_v1` | `--kernel-signals` unavailable |
-| 4 lean idle | `SCX_OPS_LEAN_IDLE`, `_LAZY_SMT` in BTF (by name, not bit number) | regular idle claim |
+| 2 lean idle | `SCX_OPS_LEAN_IDLE`, `_LAZY_SMT` in BTF (by name, not bit number) | regular idle claim |
+| 3 DSQ direct index | nothing to detect (kernel-side) | hash lookup |
+| 4 wake signals | `SCX_OPS_WAKE_SIGNAL` in BTF + `scx_bpf_task_wake_signal_v1` | `--kernel-signals` unavailable |
 
 Kernel patches are per CachyOS version (`kernel/sched-ext/cachyos-<ver>/`); this scheduler patch
 is the same for all of them.
@@ -42,4 +48,5 @@ bitops and lean idle `lazy`; `--portable-bitops` and `--lean-idle off` give the 
 
 | Date | Gate | Result |
 | --- | --- | --- |
+| 2026-10-22 | Apply | Identity series applies with zero fuzz to public head `4b6d2c424`; pristine hashes unchanged. Refreshed pin not rebuilt or loaded |
 | 2026-10-13 | Apply, build | Applies to `fe076988f`; `cargo build --locked --release` builds, `--version` prints `scx_cake 1.2.1-exp` · not loaded during preparation |

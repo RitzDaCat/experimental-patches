@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/sched-ext/scx",
+  "commit": "e7b3a219617472cf78880ac424714e52c932db61",
+  "tag": "v1.1.4",
+  "scope": "SHA-256 of the pristine files touched by the included patches, not the entire source tree"
+}
