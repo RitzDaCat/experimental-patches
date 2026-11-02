@@ -54,7 +54,7 @@ There is no published CachyOS 7.4 tag yet.
 | Kernel | [TJ development tracks](kernel/sched-ext-tj/) | pinned `for-7.4` and `for-next` | all four features rebased onto upstream development | strict apply + affected-object builds; separate source pins; unbooted |
 | 🐧 Kernel | [sched-ext upstream candidates](kernel/sched-ext/upstream/) | CachyOS 7.2.9-1 | the two measured wins (bitops kfuncs, lean idle), each standalone, for review | applies + compiles alone · not for testers: no identity patch |
 | Scheduler | [scx_cake release identity](scheduler/scx-cake/v1.2.2/) | scx-scheds 1.1.4 / Cake 1.2.2 | current CachyOS release source; identity only | strict application passes; refreshed series not built |
-| Scheduler | [scx_cake nightly identity](scheduler/scx-cake/nightly/) | public scx `scx_cake-nightly` `4b6d2c424` / Cake 1.2.1 | experimental consumer for kernel patches 1, 2, 4; falls back on a stock kernel | refreshed pin applies; earlier pin built |
+| Scheduler | [scx_cake nightly identity](scheduler/scx-cake/nightly/) | public scx `scx_cake-nightly` `ff4212ae14a3` / Cake 1.3.0 | experimental consumer for kernel patches 1, 2, 4; falls back on a stock kernel | applies and builds |
 | 🪟 Compositor | [kwin](compositor/kwin/) | KWin 6.7.5 | compositor wakes later and more precisely | 21 patches + installer, opt-in, capture and rollback tools · input-to-photon gain not shown |
 | 🔊 Audio | [goxlr-utility](audio/goxlr-utility/v1.2.4/) | v1.2.4 | no buffer allocation per sampler read | builds · not live-tested |
 | 🛠️ Tools | [mangohud](tools/mangohud/v0.8.4/) | v0.8.4 | control socket fixes | daily use on the author's machine |

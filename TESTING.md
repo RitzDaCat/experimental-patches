@@ -27,7 +27,7 @@ for the stock version. Check it after every install, update and reboot:
 | --- | --- | --- | --- |
 | Kernel | `make kernelrelease`, then `uname -r` after boot | Recorded target release with `-exp` (packaging/config may add other suffixes) | matching stock target without experiment identity |
 | scx_cake release | `scx_cake --version`, `cat /sys/kernel/sched_ext/root/ops` | `scx_cake 1.2.2-exp…`, `cake_1.2.2_exp…` | no `exp` |
-| scx_cake experimental nightly | same checks | `scx_cake 1.2.1-exp…`, `cake_1.2.1_exp…` | no `exp` |
+| scx_cake experimental nightly | same checks | `scx_cake 1.3.0-exp…`, `cake_1.3.0_exp…` | no `exp` |
 | KWin | `pacman -Qi kwin`, `./bin/kwin-latencyctl status` | Description `KWin 6.7.5 latency experiment revision 25` | Description `An easy to use, but flexible, Wayland compositor` |
 | GoXLR Utility | `goxlr-daemon --version`, daemon log | `goxlr-daemon 1.2.4-exp` | `goxlr-daemon 1.2.4` |
 | MangoHud | `mangohud --version`, overlay version line | `v0.8.4-exp` (`v0.8.4+-exp` from a patched git checkout) | `v0.8.4` |

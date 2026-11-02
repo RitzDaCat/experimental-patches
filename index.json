@@ -159,7 +159,7 @@
       "current": false,
       "base": {
         "repository": "https://github.com/RitzDaCat/scx",
-        "commit": "4b6d2c4240a558624ddd705eec8627f54a0ce240",
+        "commit": "ff4212ae14a3abb778f561a9ecb093c276ea79e7",
         "branch": "RitzDaCat/scx_cake-nightly"
       },
       "series": {

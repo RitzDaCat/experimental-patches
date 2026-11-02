@@ -219,7 +219,7 @@
       "status": "applies",
       "base": {
         "repository": "https://github.com/RitzDaCat/scx",
-        "commit": "4b6d2c4240a558624ddd705eec8627f54a0ce240",
+        "commit": "ff4212ae14a3abb778f561a9ecb093c276ea79e7",
         "branch": "RitzDaCat/scx_cake-nightly"
       },
       "tracking": [
@@ -227,16 +227,16 @@
           "kind": "git",
           "repository": "https://github.com/RitzDaCat/scx",
           "ref": "refs/heads/RitzDaCat/scx_cake-nightly",
-          "commit": "4b6d2c4240a558624ddd705eec8627f54a0ce240"
+          "commit": "ff4212ae14a3abb778f561a9ecb093c276ea79e7"
         }
       ],
       "files": {
-        "Cargo.lock": "da68dc7dee53649dae9a75e6ae888e459660efd2b9ccf093cfc309944fc6412a",
-        "scheds/rust/scx_cake/Cargo.toml": "d7fee546d7fcd5e16a11dfe5a276401fa45615e4334ed5dafa66330c89f6b5fa"
+        "Cargo.lock": "a25cf9045d8afa08205aa46742d67b5b56a800ce1f147648ab5790a53bce55c6",
+        "scheds/rust/scx_cake/Cargo.toml": "aacc94693af361f035c9caf15a27ed8de76188a5194768dbbebe91d4eedc1051"
       },
       "absent_files": [],
       "patches": {
-        "0001-identify-experimental-build.patch": "b38432573aaae9cb52069af062d487987af8b8494f61e43b8943e30786bfb0fa"
+        "0001-identify-experimental-build.patch": "1262ce33a861d53dd5ffc7aff09e57fcf8d11d628d87cb6da2253c0f9adca30f"
       }
     },
     {

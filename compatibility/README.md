@@ -11,7 +11,7 @@ series; current distro compatibility is tracked here separately.
 | `tj-7-4` | TJ `for-7.4`, `1f5dde349ac2` | [for-7.4 `series.all`](../kernel/sched-ext-tj/for-7.4/) | Same checks; affected objects with proxy execution off/on |
 | `tj-sched-ext` | TJ `for-next`, `f7008fb94ee0` | [for-next `series.all`](../kernel/sched-ext-tj/for-next/) | Strict apply; affected objects with proxy execution enabled |
 | `scx-cake` | Cake `1.2.2` in scx-scheds `1.1.4-1` | [Release identity](../scheduler/scx-cake/v1.2.2/) | Strict apply; Cargo manifest/lockfile identity matches |
-| `scx-cake-nightly` | Public nightly `4b6d2c4240a5`, Cake `1.2.1` | [Nightly identity](../scheduler/scx-cake/nightly/) | Public pin refreshed; strict apply |
+| `scx-cake-nightly` | Public nightly `ff4212ae14a3`, Cake `1.3.0` | [Nightly identity](../scheduler/scx-cake/nightly/) | Public pin refreshed; applies and builds |
 | `kwin` | `6.8.1-1.1` | KWin 6.7.5 donor | Port required; reduced stack fails at wake instrumentation |
 | `goxlr` | Package `1.2.4-2`, source `v1.2.4` | [v1.2.4](../audio/goxlr-utility/v1.2.4/) | Current source; complete series applies |
 | `mangohud` | Package `0.8.4-1.1`, source `v0.8.4` | [v0.8.4](../tools/mangohud/v0.8.4/) | Current source; complete series applies |
